@@ -1,0 +1,26 @@
+cload (DIR^"../../types.fl");
+
+BUNDLE "B_hmul"
+        [("arg1", "HAint"), ("arg2", "HAint")]
+        [("res", "Aint")]
+;
+
+let hmul =
+    bit_input               clk.
+    bit_input               reset.
+    B_hmul_input	    S_hmul.
+    //
+    Aint_internal	    a b sum.
+    Eint_internal	    e_a e_b e_r.
+    //
+    CELL "hmul" [
+	a <- ZX (S_hmul-->arg1),
+	b <- ZX (S_hmul-->arg2),
+	S_hmul-->res <- a '*' b
+];
+
+create_default_version hmul;
+
+//STE_debug (pexlif2fsm hmul);
+//IDV hmul "DB_QQ" [];
+//system "'/bin/rm -rf DB_QQ";

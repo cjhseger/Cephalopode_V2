@@ -1,0 +1,25 @@
+load "idv.fl";
+update_vossrc "RECURSION-CALL-LIMIT" "100000";
+
+let load_files = map (\f. DIR^f) [
+	"../types.fl",
+	"reduction_types.fl",
+	"arbi_unit/arbi_unit.bfl",
+	"combinator_list.fl",
+	"int_alu.bfl",
+//	"stack.bfl",
+	"comb_unit.bfl",
+	"prim_unit.bfl",
+	"reduction.bfl",
+	"misc_unit/misc_unit.bfl"
+];
+
+// Creates a bundle_reduction function/fub
+mk_interconnect_fub "reduction_unit" load_files F
+	["arbi_unit", "prim_unit", "comb_unit", "reduction", "misc_unit",
+	 "int_alu" //, "stack"
+	]
+	T
+;
+
+quit;

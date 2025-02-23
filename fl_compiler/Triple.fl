@@ -1,0 +1,18 @@
+cload "mk_rom3.fl";
+
+let n = 4;
+
+let answer = 81;
+
+forward_declare {triple::int->int};
+let triple n =
+    n = 0 => 1 |
+    let x = triple (n-1) in
+    x+x+x
+;
+
+
+let main = (triple n) = answer;
+
+mk_cephalopode_rom "_Triple.rom" "main" T;
+

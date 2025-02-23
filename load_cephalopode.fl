@@ -1,0 +1,13 @@
+// File to load a precompiled version of Cephalopd
+
+
+// Load type definitions
+cload (DIR^"types.fl");
+cload (DIR^"reduction/reduction_types.fl");
+cload (DIR^"memory/types.fl");
+
+
+// Load pexlif
+let cephalopode = read_pexlif (DIR^(sprintf "cephalopode_M%d.pexlif" (log2 MEM_SIZE)));
+fprintf stdinfo "Loading Cephalopde took %s seconds\n" (snd (wtime cephalopode));
+

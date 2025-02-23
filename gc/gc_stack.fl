@@ -1,0 +1,78 @@
+cload (DIR^"../types.fl");
+
+BUNDLE "B_gcs_nonempty"
+        []
+        [("b", "bit")]
+;
+
+BUNDLE "B_gcs_pop"
+        [("clkenb", "bit"), ("req", "bit")]
+        [("ack", "bit"), ("dout", "addr")]
+;
+
+BUNDLE "B_gcs_push"
+        [("clkenb", "bit"), ("req", "bit"), ("din", "addr")]
+        [("ack", "bit")]
+;
+
+
+let sRAM_LATENCY = 0;
+
+TYPE "saddr" (bits_needed (GC_STACK_SIZE)); // Note: to handle empty != full!!!
+
+MEMORY "sRAM" [(GC_STACK_SIZE, "saddr")] "addr";
+
+
+let behavioral_sRAM =
+    bit_input       clk.
+    bit_input       rw.
+    saddr_input     addr.
+    addr_input	    inp.
+    addr_output	    out.
+    //
+    bit_internal        addr_rdy rw_rdy inp_rdy rd_rdy wr_rdy.
+    sRAM_internal       sram tmp_new_sram new_sram.
+    addr_internal	local_rd_data.
+    CELL "behavioral_sRAM" [
+        is_stable sRAM_LATENCY addr addr_rdy,
+        is_stable sRAM_LATENCY rw rw_rdy,
+        is_stable sRAM_LATENCY inp inp_rdy,
+        rd_rdy <- addr_rdy '&' rw_rdy,
+        Read_sRAM sram addr local_rd_data,
+        out <- (IF (rd_rdy '&' rw) THEN local_rd_data ELSE 'X),
+        Write_sRAM sram addr inp tmp_new_sram,
+        wr_rdy <- rd_rdy '&' inp_rdy,
+        new_sram <- (IF (wr_rdy '&' '~' rw) THEN tmp_new_sram ELSE sram),
+        re_ff clk new_sram sram
+];
+
+let gc_stack =
+    bit_input		    clk.
+    bit_input		    reset.
+    B_gcs_push_input	    S_gcs_push.
+    B_gcs_pop_input	    S_gcs_pop.
+    B_gcs_nonempty_input    S_gcs_nonempty.
+    //
+    // Internal
+    //
+    saddr_internal	    top aaddr.
+    bit_internal	    en eclk rw.
+    CELL "gc_stack" [
+	en <- S_gcs_push-->clkenb '|' S_gcs_pop-->clkenb,
+	clockgate_with_reset clk reset en eclk,
+	STATE eclk top [
+	    (reset,		    '0),
+	    (S_gcs_push-->req,	    top '+' '1),
+	    (S_gcs_pop-->req,	    top '-' '1)
+	],
+	rw <- '~' (S_gcs_push-->req),
+	aaddr <- (IF (S_gcs_push-->req) THEN top ELSE (top '-' '1)),
+	behavioral_sRAM clk rw aaddr (S_gcs_push-->din) (S_gcs_pop-->dout),
+        (S_gcs_nonempty-->b) <- (top '!=' '0),
+        (S_gcs_push-->ack) <- (S_gcs_push-->req),
+        (S_gcs_pop-->ack) <- (S_gcs_pop-->req) '&' ('~' (S_gcs_push-->req))
+];
+
+create_default_version gc_stack;
+
+//STE_debug (pexlif2fsm gc_stack);

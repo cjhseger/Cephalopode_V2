@@ -1,0 +1,52 @@
+cload (DIR^"../types.fl");
+cload (DIR^"arb_ackpulse_fsm.fsm.fl");
+
+// Prioritizes #0, speaks ackpulse.
+let arb_alloc =
+    bit_input clk.
+    bit_input reset.
+    //
+    bit_output alloc_req.
+    bit_input alloc_ack.
+    addr_input alloc_addr.
+    //
+    bit_input alloc_req0.
+    bit_output alloc_ack0.
+    addr_output alloc_addr0.
+    //
+    bit_input alloc_req1.
+    bit_output alloc_ack1.
+    addr_output alloc_addr1.
+    //
+    bit_internal sel.
+    CELL "arb_alloc" [
+        arb_ackpulse_fsm clk reset alloc_ack alloc_req0 alloc_req1 alloc_ack0 alloc_ack1 alloc_req sel,
+        alloc_addr0 <- (IF sel THEN {'X :: addr} ELSE alloc_addr),
+        alloc_addr1 <- (IF sel THEN alloc_addr ELSE {'X :: addr})
+    ];
+
+// Mutally-exclusive only, speaks ackpulse.
+let fork_alloc =
+    bit_input clk.
+    bit_input reset.
+    //
+    bit_output alloc_req.
+    bit_input alloc_ack.
+    addr_input alloc_addr.
+    //
+    bit_input alloc_req0.
+    bit_output alloc_ack0.
+    addr_output alloc_addr0.
+    //
+    bit_input alloc_req1.
+    bit_output alloc_ack1.
+    addr_output alloc_addr1.
+    //
+    CELL "arb_alloc" [
+        alloc_req <- alloc_req0 '|' alloc_req1,
+        alloc_ack0 <- alloc_req0 '&' alloc_ack,
+        alloc_ack1 <- alloc_req1 '&' alloc_ack,
+        alloc_addr0 <- alloc_addr,
+        alloc_addr1 <- alloc_addr
+    ];
+

@@ -1,0 +1,273 @@
+// Use proper negative latch for clock gating
+#define LATCHBASED_CLOCKGATING
+
+cload "idv.fl";
+(update_vossrc "RECURSION-CALL-LIMIT" "100000") fseq ();
+
+let MUTEX_ENUM = ENUM;		// Use binary encoded ENUMS
+
+//let MEM_SIZE = 2**12;
+//let MEM_SIZE = 2**7;
+//let MEM_SIZE = 2**8;
+//let MEM_SIZE = 2**10;
+//let MEM_SIZE = 2**12;
+let MEM_SIZE = 2**14;
+
+let ROM_SIZE = min (2**10) MEM_SIZE;
+
+let GC_STACK_SIZE = MEM_SIZE/2;	// ???????? 
+
+let THRESHOLD = (MEM_SIZE/2)*1/2;	// When to initiate G.C.
+
+let ADDR_SZ = bits_needed (MEM_SIZE-1);
+let AINT_SZ = (ADDR_SZ/2)*2;	// Must be even sized.
+let HAINT_SZ = AINT_SZ/2;
+let INT_SZ = 2*AINT_SZ;
+
+
+TYPE "addr" ADDR_SZ;
+let addr_zero = {'0::addr};
+let addr_null = addr_zero;
+let graph_root = {'1::addr};
+let heap_min = {'1::addr};
+let heap_max = {''(MEM_SIZE - 1)::addr};
+let threshold = {''(THRESHOLD)::addr};
+let gcs_max = {''(GC_STACK_SIZE-1) :: addr};
+
+let GRAPHPTR_SZ = 2 * ADDR_SZ;
+STRUCT "graphptr" GRAPHPTR_SZ [
+    ("up", "addr", (GRAPHPTR_SZ-1 -- ADDR_SZ)),
+    ("p", "addr", (ADDR_SZ-1 -- 0))
+    ];
+
+let make_graphptr p_ up_ = '0 <-- p ? p_ <-- up ? up_;
+
+// Types for arbitrary precision integers.
+
+lettype sign = ANY | UNSIGNED | SIGNED;
+
+TYPE "Int"	INT_SZ;
+TYPE "Int1"	(INT_SZ+1);
+TYPE "Aint"	AINT_SZ;
+TYPE "HAint"	(AINT_SZ/2);
+TYPE "Eint"	(AINT_SZ+1);
+
+let MAKE_INT {msd::Aint} {lsd::Aint} =
+    let res = frombits ((tobits msd)@(tobits lsd)) in
+    {res :: Int}
+;
+
+let MAKE_SINT {lsd::Aint} =
+    let res = SX lsd in
+    {res :: Int}
+;
+
+// Types for graph nodes
+ENUM "g_type" ["G_FREE", "G_APP", "G_COMB", "G_PRIM", "G_INDIR",
+               "G_INT", "G_AINT",
+               "G_CONS", "G_NIL"];
+let G_TYPE_SZ = get_hw_type_size "g_type";
+
+ENUM "combinator" ["C_S", "C_K", "C_I", "C_Y", "C_SPRIME", "C_C", "C_CPRIME",
+                   "C_B", "C_BSTAR", "C_BPRIME", "C_SPRIMEPRIME",
+		   // Family of left-most combinators
+		   "C_L", "C_Cn",
+                   // Strictness combinators...
+                   "C_S1", "C_S2" ];
+let COMBINATOR_SZ = get_hw_type_size "combinator";
+
+ENUM "primitive" [
+            "P_PLUS", "P_MINUS", "P_TIMES", "P_DIV", "P_MOD",
+            "P_EQ", "P_NEQ", "P_GT", "P_GEQ",
+            "P_AND", "P_OR", "P_NOT",
+            "P_COND",
+	    "P_FST", "P_SND", "P_TUPLE",
+	    "P_HD", "P_TL", "P_IS_NIL", "P_CONS", "P_NIL",
+            "P_PROC_INIT"
+];
+let PRIMS_SZ = get_hw_type_size "primitive";
+
+let get_prim_arity op =
+    let prim_l = [
+        // Name       Args
+        (P_PLUS,        2),
+        (P_MINUS,       2),
+        (P_TIMES,       2),
+        (P_DIV,		2),
+        (P_MOD,		2),
+        (P_EQ,          2),
+        (P_NEQ,         2),
+        (P_GT,          2),
+        (P_GEQ,         2),
+        (P_AND,         2),
+        (P_OR,          2),
+        (P_NOT,         1),
+        (P_COND,        3),  // cond then_expr else_expr
+	(P_FST,		1),
+	(P_SND,		1),
+	(P_TUPLE,	2),
+	(P_HD,		1),
+	(P_TL,		1),
+	(P_IS_NIL,	1),
+	(P_CONS,	2),
+	(P_NIL,		0)
+    ] in
+    itlist (\(o,cnt).\e. IF (op '=' o) THEN ''cnt ELSE e) prim_l '0
+;
+
+let get_comb_arity comb =
+    let prim_l = [
+        // Name    Args
+	(C_I,	    1),
+	(C_K,	    2),
+	(C_S,	    3),
+	(C_SPRIME,  4),
+	(C_SPRIMEPRIME,  4),
+	(C_C,	    3),
+	(C_CPRIME,  4),
+	(C_B,	    3),
+	(C_BSTAR,   4),
+	(C_S1,	    2),
+	(C_S2,	    3),
+	(C_BPRIME,  4),
+	(C_Y,	    1)
+    ] in
+    itlist (\(c,cnt).\e. IF (comb '=' c) THEN ''cnt ELSE e) prim_l '0
+;
+
+// Building the node type
+let make_range top_range sz =
+        let next = (itlist max top_range (-1))+1 in
+        let range = (next+sz-1) downto next in
+        range
+;
+
+TYPE "cidx" (INT_SZ-COMBINATOR_SZ);
+
+let g_type_range           = make_range [] G_TYPE_SZ;
+let combinator_range       = make_range g_type_range COMBINATOR_SZ;
+let combinator_index_range = make_range combinator_range (INT_SZ-COMBINATOR_SZ);
+let primitive_range        = make_range g_type_range PRIMS_SZ;
+let left_range             = make_range g_type_range ADDR_SZ;
+let right_range            = make_range left_range  ADDR_SZ;
+let int_range              = make_range g_type_range  INT_SZ;             
+let aint_range             = make_range left_range  AINT_SZ;             
+
+let tot_bits_needed =
+    let ranges = right_range@
+                 left_range@
+                 int_range@
+                 aint_range@
+                 g_type_range@
+                 primitive_range@
+		 combinator_range@
+		 combinator_index_range
+    in
+    1+(itlist max ranges 0)
+;
+
+let NODE_SZ = tot_bits_needed;
+
+STRUCT "node" tot_bits_needed [
+                // Regular use
+                ("ntype",       "g_type",       g_type_range),
+                ("comb",        "combinator",   combinator_range),
+                ("comb_idx",    "cidx",		combinator_index_range),
+                ("prim",        "primitive",    primitive_range),
+                ("aint",        "Aint",         aint_range),
+                ("int",         "Int",          int_range),
+                ("left",        "addr",         left_range),
+                ("right",       "addr",         right_range)
+];
+
+let make_indirection p = {'0 :: node} <-- ntype ? G_INDIR <-- left ? p;
+
+let MSD {i::Int} =
+    let res = frombits (firstn AINT_SZ (tobits i)) in
+    {res::Aint}
+;
+
+let LSD {i::Int} =
+    let res = frombits (butfirstn AINT_SZ (tobits i)) in
+    {res::Aint}
+;
+
+let Upper {i::Aint} =
+    let res = frombits (firstn HAINT_SZ (tobits i)) in
+    {res :: HAint}
+;
+
+let Lower {i::Aint} =
+    let res = frombits (butfirstn HAINT_SZ (tobits i)) in
+    {res :: HAint}
+;
+
+let Merge {upper::Aint} {lower::Aint} =
+    let res = frombits ((butfirstn HAINT_SZ (tobits upper))@
+			(butfirstn HAINT_SZ (tobits lower)))
+    in
+    {res :: Aint}
+;
+
+let STRIP {i::Eint} =
+    let res = frombits (tl (tobits i)) in
+    {res :: Int}
+;
+
+ENUM "mem_op" [ "MEM_INIT", "MEM_READ", "MEM_WRITE", "SNAP_MEM_READ",
+		"SNAP_PREPARE", "SNAP_TAKE" ]
+;
+
+ENUM "mark_op" ["MARK_INIT", "MARK_GET", "MARK_SET"];
+
+let TOP2 {i::Int} = firstn 2 (tobits i);
+
+let fits_in_INT {op::primitive} {n1::node} {n2::node} =
+    let av = n1-->int in
+    let bv = n2-->int in
+    val [an,an1] = TOP2 av in
+    val [bn,bn1] = TOP2 bv in
+    (n1-->ntype '=' G_INT) '&'
+    (n2-->ntype '=' G_INT) '&'
+    (
+	(op '=' P_EQ)  '|'
+	(op '=' P_NEQ) '|'
+	(op '=' P_GT)  '|'
+	(op '=' P_GEQ) '|'
+	(op '=' P_AND) '|'
+	(op '=' P_OR)  '|'
+	(op '=' P_NOT) '|'
+	((op '=' P_PLUS)
+	    '&' (
+		    ('~' an '&' '~' an1 '&' '~' bn '&' '~' bn1) '|'
+		    (an '&' an1 '&' bn '&' bn1) '|'
+		    (an '&' '~' bn) '|'
+		    ('~' an '&' bn)
+		)
+	) '|'
+	((op '=' P_MINUS)
+	    '&' (
+		    (an '&' bn) '|'
+		    ('~' an '&' '~' bn) '|'
+		    ('~' an '&' '~' an1 '&' '~' bn '&' bn1)'|'
+		    ('~' an '&' an1 '&' '~' bn '&' '~' bn1)
+		)
+	)
+    )
+;
+
+// Module to create an ack pulse from a request signal using the ackpulse
+// protocol when the logic inside the module is meant to take cycs cycles.
+// (If cycs is 0, then the ack is immediate.)
+let ackpulse_delay cycs =
+    bit_input   clk.
+    bit_input   reset.
+    bit_input   req.
+    bit_output  ack.
+    bit_list_internal (cycs-1)  mid.    
+    CELL (sprintf "%d-cycle-delay" cycs) (
+        cycs == 0 => [ack <- req] |
+        (map2 (\i.\o. re_ff_reset clk reset (i '&' '~' ack) o)
+            (req:mid) (mid@[ack]))
+);
+

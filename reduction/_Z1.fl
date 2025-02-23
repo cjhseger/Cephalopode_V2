@@ -1,0 +1,12 @@
+let vis = get_current_vis ();
+add_waveform vis ["S_stack_get_args'n1[27:0]"];
+add_waveform vis ["S_stack_get_args'n2[27:0]"];
+add_waveform vis ["S_stack_get_args'n3[27:0]"];
+add_waveform vis ["S_stack_get_args'n4[27:0]"];
+add_waveform vis ["S_stack_get_args'n5[27:0]"];
+add_waveform vis ["S_stack_get_args'n6[27:0]"];
+add_waveform vis ["S_stack_get_args'req"];
+add_waveform vis ["S_stack_get_args'cnt[15:0]"];
+add_waveform vis ["S_stack_get_args'ack"];
+add_waveform vis ["head[3:0]"];
+add_waveform vis ["tail[3:0]"];

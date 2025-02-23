@@ -1,0 +1,10 @@
+define do_mem_init = do memory MEM_INIT 0 0;
+define do_mem_read addr = do memory MEM_READ addr 0;
+define do_mem_write addr din = do memory MEM_WRITE addr din;
+define do_snap_read addr = do memory SNAP_MEM_READ addr 0;
+define do_snap_prepare = do memory SNAP_PREPARE 0 0;
+define do_snap_take = do memory SNAP_TAKE 0 0;
+define do_mark_init = do mark_unit MARK_INIT 0 0; 
+define do_mark_get addr = do mark_unit MARK_GET addr 0; 
+define do_mark_set addr mark = do mark_unit MARK_SET addr mark; 
+

@@ -1,0 +1,43 @@
+cload (DIR^"types.fl");
+
+BUNDLE "B_get_ccache_state"
+        []
+        [("ctrl_cache_valid", "bit"),
+	 ("ctrl_cache_addr", "caddr"),
+	 ("ctrl_cache_line", "ctrl_word")
+	]
+;
+
+BUNDLE "B_set_ccache_state"
+        [("req", "bit"),
+	 ("ctrl_cache_valid", "bit"),
+	 ("ctrl_cache_addr", "caddr"),
+	 ("ctrl_cache_line", "ctrl_word")
+	]
+        [("ack", "bit")]
+;
+
+let ccache_state =
+    bit_input			clk.
+    bit_input			reset.
+    B_get_ccache_state_input	S_get_ccache_state.
+    B_set_ccache_state_input	S_set_ccache_state.
+    // State
+    bit_internal		s_ctrl_cache_valid.
+    caddr_internal		s_ctrl_cache_addr.
+    ctrl_word_internal		s_ctrl_cache_line.
+    //
+    CELL "ccache_state" [
+	re_ff_en clk (S_set_ccache_state-->req)
+		     (S_set_ccache_state-->ctrl_cache_valid) s_ctrl_cache_valid,
+	re_ff_en clk (S_set_ccache_state-->req)
+		     (S_set_ccache_state-->ctrl_cache_addr) s_ctrl_cache_addr,
+	re_ff_en clk (S_set_ccache_state-->req)
+		     (S_set_ccache_state-->ctrl_cache_line) s_ctrl_cache_line,
+	S_set_ccache_state-->ack <- S_set_ccache_state-->req,
+	// 
+	S_get_ccache_state-->ctrl_cache_valid <- s_ctrl_cache_valid,
+	S_get_ccache_state-->ctrl_cache_addr <- s_ctrl_cache_addr,
+	S_get_ccache_state-->ctrl_cache_line <- s_ctrl_cache_line
+];
+create_default_version ccache_state;

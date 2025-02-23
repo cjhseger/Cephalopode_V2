@@ -1,0 +1,173 @@
+cload (DIR^"../../types.fl");
+cload (DIR^"../reduction_types.fl");
+
+TYPE "arb_rf_addr" (ARB_RF_CNT+ARB_LEN_BITS);
+
+MEMORY "arbi_rf" [(NBR_ARB_REGS, "arb_rf_addr")] "Aint";
+
+
+let arb_rf =
+    bit_input		clk reset.
+    // arb_rf_new
+    bit_input		a'arb_rf_new'req.
+    bit_output		a'arb_rf_new'ack.
+    index_output	a'arb_rf_new'o'idx.
+    // arb_rf_length
+    bit_input		a'arb_rf_length'req.
+    bit_output		a'arb_rf_length'ack.
+    index_input		a'arb_rf_length'i'idx.
+    alen_output		a'arb_rf_length'o'len.
+    // arb_rf_alloc
+    bit_input		a'arb_rf_alloc'req.
+    bit_output		a'arb_rf_alloc'ack.
+    index_input		a'arb_rf_alloc'i'idx.
+    alen_input		a'arb_rf_alloc'i'cnt.
+    // arb_rf_get Port 0
+    bit_input		a'arb_rf_get0'req.
+    bit_output		a'arb_rf_get0'ack.
+    index_input		a'arb_rf_get0'i'idx.
+    alen_input		a'arb_rf_get0'i'i.
+    Aint_output		a'arb_rf_get0'o'v.
+    // arb_rf_get Port 1
+    bit_input		a'arb_rf_get1'req.
+    bit_output		a'arb_rf_get1'ack.
+    index_input		a'arb_rf_get1'i'idx.
+    alen_input		a'arb_rf_get1'i'i.
+    Aint_output		a'arb_rf_get1'o'v.
+    // arb_rf_set
+    bit_input		a'arb_rf_set'req.
+    bit_output		a'arb_rf_set'ack.
+    index_input		a'arb_rf_set'i'idx.
+    alen_input		a'arb_rf_set'i'i.
+    Aint_input		a'arb_rf_set'i'v.
+    // arb_rf_pop
+    bit_input		a'arb_rf_pop'req.
+    bit_output		a'arb_rf_pop'ack.
+    index_input		a'arb_rf_pop'i'idx.
+    // arb_rf_push
+    bit_input		a'arb_rf_push'req.
+    bit_output		a'arb_rf_push'ack.
+    index_input		a'arb_rf_push'i'idx.
+    Aint_input		a'arb_rf_push'i'i.
+    // arb_rf_free
+    bit_input		a'arb_rf_free'req.
+    bit_output		a'arb_rf_free'ack.
+    //
+    // Internal
+    //
+    alen_list_internal MAX_ARB_RF	    lengths.
+    arb_rf_addr_list_internal MAX_ARB_RF    bases.
+    arb_rf_addr_internal		    cur_free base_push_addr.
+    alen_internal			    base_push_len.
+    index_internal			    alloc_cnt.
+    arbi_rf_internal			    new_arbi_rf tmp_arbi_rf arbi_rf.
+    arbi_rf_internal			    tmp_set_arbi_rf tmp_push_arbi_rf.
+    arb_rf_addr_internal		    base_addr0 base_addr1 base_wr_addr.
+    arb_rf_addr_internal		    raddr0 raddr1 r_wr_addr r_push_addr.
+    //
+    CELL "rb_rf" (
+    (map2 (\i.\length. STATE clk length [
+	    (reset,				'0),
+	    (a'arb_rf_free'req,			'0),
+	    (a'arb_rf_alloc'req '&'
+	     (a'arb_rf_alloc'i'idx '=' ''i),	a'arb_rf_alloc'i'cnt),
+	    (a'arb_rf_push'req '&' 
+	     (a'arb_rf_push'i'idx '=' ''i),    length '+' '1),
+	    (a'arb_rf_pop'req '&' 
+	     (a'arb_rf_pop'i'idx '=' ''i),	length '-' '1)
+	]) ((MAX_ARB_RF-1) downto 0) lengths
+    )
+    @
+    (map2 (\i.\base. STATE clk base [
+	    (reset,				'0),
+	    (a'arb_rf_free'req,			'0),
+	    ((a'arb_rf_new'req '&'
+	     (alloc_cnt '=' ''i)),	cur_free)
+	]) ((MAX_ARB_RF-1) downto 0) bases
+    )
+    @
+    [
+    //
+    // arb_rf_new
+    //
+      STATE clk alloc_cnt [
+    	(reset,		    '0),
+    	(a'arb_rf_free'req, '0),
+    	(a'arb_rf_new'req,  alloc_cnt '+' '1)
+        ]
+    , a'arb_rf_new'o'idx <- alloc_cnt
+    , a'arb_rf_new'ack <- a'arb_rf_new'req
+    //
+    // arb_rf_length
+    //
+    , SELECT_list lengths a'arb_rf_length'i'idx a'arb_rf_length'o'len
+    , a'arb_rf_length'ack <- a'arb_rf_length'req
+    //
+    // arb_rf_alloc
+    //
+    , STATE clk cur_free [
+	(reset, '0),
+    	(a'arb_rf_alloc'req,	cur_free '+' ZX a'arb_rf_alloc'i'cnt),
+	(a'arb_rf_push'req,	cur_free '+' '1)
+        ]
+    , a'arb_rf_alloc'ack <- a'arb_rf_alloc'req
+    //
+    // arb_rf_get0
+    //
+    , SELECT_list bases a'arb_rf_get0'i'idx base_addr0
+    , raddr0 <- base_addr0 '+' ZX a'arb_rf_get0'i'i
+    , Read_arbi_rf arbi_rf raddr0 a'arb_rf_get0'o'v
+    , a'arb_rf_get0'ack <- a'arb_rf_get0'req
+    //
+    // arb_rf_get1
+    //
+    , SELECT_list bases a'arb_rf_get1'i'idx base_addr1
+    , raddr1 <- base_addr1 '+' ZX a'arb_rf_get1'i'i
+    , Read_arbi_rf arbi_rf raddr1 a'arb_rf_get1'o'v
+    , a'arb_rf_get1'ack <- a'arb_rf_get1'req
+    //
+    // arb_rf_set
+    //
+    , SELECT_list bases a'arb_rf_set'i'idx base_wr_addr
+    , r_wr_addr <- base_wr_addr '+' ZX a'arb_rf_set'i'i
+    , Write_arbi_rf arbi_rf r_wr_addr a'arb_rf_set'i'v tmp_set_arbi_rf
+    , a'arb_rf_set'ack <- a'arb_rf_set'req
+    //
+    // arb_rf_pop
+    //
+    , a'arb_rf_pop'ack <- a'arb_rf_pop'req
+    //
+    // arb_rf_push
+    //
+    , SELECT_list bases a'arb_rf_push'i'idx base_push_addr
+    , SELECT_list lengths a'arb_rf_push'i'idx base_push_len
+    , r_push_addr <- base_push_addr '+' ZX base_push_len
+    , Write_arbi_rf arbi_rf r_push_addr a'arb_rf_push'i'i tmp_push_arbi_rf
+    , a'arb_rf_push'ack <- a'arb_rf_push'req
+    //
+    // arb_rf_free
+    //
+    , a'arb_rf_free'ack <- a'arb_rf_free'req
+    //
+    // RF itself
+    //
+    , CASE new_arbi_rf [
+	    (a'arb_rf_set'req,   tmp_set_arbi_rf),
+	    (a'arb_rf_push'req,  tmp_push_arbi_rf)
+	  ] arbi_rf
+    , re_ff clk new_arbi_rf arbi_rf
+    ]
+);
+
+#ifdef SIMULATION
+
+let p = flfun2pexlif arb_rf;
+wtime (p fseq 1);
+
+let ckt = pexlif2fsm p;
+wtime (ckt fseq 1);
+
+let vis = STE_debug ckt;
+vis;
+
+#endif

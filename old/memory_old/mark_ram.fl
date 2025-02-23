@@ -1,0 +1,336 @@
+//set_font font_largest;
+cload (DIR^"../types.fl");
+cload (DIR^"mark_ram_fsm.fsm.fl");
+
+let MARK_RAM_WORD_SIZE = 32;	// Size of mark word
+let mRAM_LATENCY = 2;		// Phases of latency for mark-memory access
+
+
+// ----- Derived constants and types -----
+
+TYPE "mark_word" MARK_RAM_WORD_SIZE;
+
+
+let MARK_SZ = 1;
+let MARK_BANKS = MARK_RAM_WORD_SIZE/MARK_SZ;
+let BIT_ADDR_SZ = log2 MARK_BANKS;
+let MARK_ADDR_SZ = ADDR_SZ-BIT_ADDR_SZ;
+
+TYPE "baddr" BIT_ADDR_SZ;
+TYPE "maddr" MARK_ADDR_SZ;
+
+let addr2baddr {addr::addr} =
+    {frombits (lastn BIT_ADDR_SZ (tobits addr))::baddr}
+;
+
+let addr2maddr {addr::addr} =
+    {frombits (butlastn BIT_ADDR_SZ (tobits addr))::maddr}
+;
+
+let maddr2addr {maddr::maddr} =
+    {(frombits ((tobits maddr)@(tobits {'0 :: baddr}))) :: addr}
+;
+
+MEMORY "mRAM" [(MEM_SIZE/MARK_BANKS, "maddr")] "mark_word";
+
+let core_mRAM =
+    bit_input		rw.
+    maddr_input     addr.
+    mark_word_input	inp.
+    mark_word_output	out.
+    //
+    bit_internal        addr_rdy rw_rdy inp_rdy rd_rdy wr_rdy.
+    mRAM_internal	mram tmp_new_mram new_mram.
+    mark_word_internal  local_rd_data.
+    CELL "core_mRAM" [
+        is_stable mRAM_LATENCY addr addr_rdy,
+        is_stable mRAM_LATENCY rw rw_rdy,
+        is_stable mRAM_LATENCY inp inp_rdy,
+        rd_rdy <- addr_rdy '&' rw_rdy,
+        Read_mRAM mram addr local_rd_data,
+        out <- (IF (rd_rdy '&' rw) THEN local_rd_data ELSE 'X),
+        Write_mRAM mram addr inp tmp_new_mram,
+        wr_rdy <- rd_rdy '&' inp_rdy,
+        new_mram <- (IF (wr_rdy '&' '~' rw) THEN tmp_new_mram ELSE mram),
+        mram <: new_mram
+];
+
+
+let cache =
+    bit_input		clk.
+    bit_input		reset.
+    maddr_input		maddr.
+    bit_input		update.
+    mark_word_input 	new_cword. 
+    bit_output		match.
+    mark_word_output	old_cword. 
+    //
+    internal		old_maddr valid.
+    CELL "cache" [
+	re_ff_en clk update new_cword old_cword,
+	re_ff_en clk update maddr old_maddr,
+	re_ff_en_reset clk update reset '1 valid,
+	match <- valid '&' (old_maddr '=' maddr)
+];
+
+
+ENUM "blast_fsm" ["ARB_RD", "ARB_WR"];
+
+ENUM "init_mark_fsm" ["MARK_IDLE", "DO_INIT0", "DO_INIT", "INIT", "INIT_DONE"];
+
+let mark_RAM =
+    bit_input	clk.
+    bit_input	reset.
+    // 
+    bit_input	do_init_req.
+    bit_output	do_init_ack.
+    //
+    bit_input	rd_req.
+    addr_input	rd_addr.
+    bit_output	rd_ack.
+    bit_output	rd_out.
+    //
+    bit_input	wr_req.
+    addr_input	wr_addr.
+    bit_input	wr_inp.
+    bit_output	wr_ack.
+    //
+    addr_internal	addr.
+    baddr_internal	baddr.
+    maddr_internal	maddr.
+    mark_word_internal	base_ram_cword ram_cword.
+    mark_word_internal	cached_cword out_cword.
+    mark_word_internal	new_cword updated_cword.
+    blast_fsm_internal	blast_state.
+    bit_internal	cur_is_rd do_ram_read match.
+    bit_internal	do_ram_write do_ram_read update_cache.
+    bit_internal	wr_ram_rdy rd_ram_rdy.
+    bit_internal	last_was_rd.
+    bit_internal	is_rd_op is_wr_op.
+    bit_internal	init_mark_done is_init_op.
+    maddr_internal	init_mark_cnt.
+    init_mark_fsm_internal	init_mark_state.
+    bit_internal	init_ack init_req.
+    CELL "mark_RAM" 
+	[ Moore_FSM "blastrate_fsm" clk blast_state (reset, ARB_RD) [
+	    ARB_RD --- is_wr_op --- ARB_WR,
+	    ARB_WR --- is_rd_op --- ARB_RD
+	  ]
+	, Moore_FSM "init_mark_fsm" clk init_mark_state (reset, MARK_IDLE) [
+	    MARK_IDLE --- do_init_req   --- DO_INIT0,
+	    DO_INIT0  --- '1	        --- INIT,
+	    DO_INIT   --- init_mark_done     --- MARK_IDLE,
+	    DO_INIT   --- '1	        --- INIT,
+	    INIT      --- init_ack	--- INIT_DONE,
+	    INIT_DONE --- '1	        --- DO_INIT
+	  ]
+	, init_req <- is_INIT init_mark_state
+	, do_init_ack <- is_DO_INIT init_mark_state '&' init_mark_done
+	, STATE clk init_mark_cnt [
+		(is_MARK_IDLE init_mark_state, '0),
+		(is_INIT_DONE init_mark_state, init_mark_cnt '+' '1)
+	    ]
+	, init_mark_done <- init_mark_cnt '=' ''(MEM_SIZE/MARK_BANKS)
+	, last_was_rd <- (is_ARB_RD blast_state)
+	, CASE addr [
+		    (is_rd_op, rd_addr),
+		    (is_wr_op, wr_addr),
+		    (is_init_op, maddr2addr init_mark_cnt)
+		    ] 'X
+	, baddr <- addr2baddr addr
+	, maddr <- addr2maddr addr
+	//
+	, cache clk reset maddr update_cache new_cword match cached_cword
+	, core_mRAM ('~' do_ram_write) maddr new_cword base_ram_cword
+	, re_ff_en clk rd_ram_rdy base_ram_cword ram_cword
+	, rst_phase_delay mRAM_LATENCY reset do_ram_read rd_ram_rdy
+	, rst_phase_delay mRAM_LATENCY reset do_ram_write wr_ram_rdy
+	//
+	, mark_ram_fsm clk reset
+		// inputs
+		init_req last_was_rd match rd_ram_rdy rd_req
+		wr_ram_rdy wr_req 
+		// outputs
+		do_ram_read do_ram_write init_ack is_init_op is_rd_op is_wr_op
+		rd_ack update_cache wr_ack
+	, out_cword <- (IF match THEN cached_cword ELSE ram_cword)
+	, SELECT out_cword baddr rd_out
+	, INSERT out_cword wr_inp baddr updated_cword
+	, CASE new_cword [
+		    (is_rd_op, out_cword),
+		    (is_wr_op, updated_cword),
+		    (is_init_op, '0)
+		] 'X
+];
+
+
+
+//////#define SIMULATE
+////#ifdef SIMULATE
+//
+//
+//ENUM "ifc_fsm"	["I_IDLE", "I_BUSY"];
+//
+//let inp_ifc =
+//    bit_input	clk.
+//    bit_input	reset.
+//    bit_input	inp_req.
+//    input	inp.
+//    bit_output	req.
+//    bit_input	ack.
+//    output	out.
+//    //
+//    ifc_fsm_internal	ifc_state.
+//    bit_internal	start.
+//    internal		prev_inp.
+//    CELL "inp_ifc" [
+//	Moore_FSM "ifc_fsm" clk ifc_state (reset, I_IDLE) [
+//	    I_IDLE --- inp_req --- I_BUSY,
+//	    I_BUSY --- ack --- I_IDLE
+//	],
+//	start <- inp_req '&' (is_I_IDLE ifc_state),
+//	req <- start '|' is_I_BUSY ifc_state,
+//	re_ff_en clk (is_I_IDLE ifc_state) inp prev_inp,
+//	out <- (IF start THEN inp ELSE prev_inp)
+//];
+//    
+//
+//let test_harness =
+//    bit_input	clk.
+//    bit_input	reset.
+//    // 
+//    bit_input   do_init_req.
+//    bit_output  do_init_ack.
+//    //
+//    bit_input	rd_req.
+//    addr_input	rd_addr.
+//    bit_output	rd_ack.
+//    bit_output	rd_out.
+//    //
+//    bit_input	wr_req.
+//    addr_input	wr_addr.
+//    bit_input		wr_inp.
+//    bit_output	wr_ack.
+//    //
+//    bit_internal	mid_rd_req.
+//    addr_internal	mid_rd_addr.
+//    bit_internal	mid_wr_req.
+//    addr_internal	mid_wr_addr.
+//    bit_internal	mid_wr_inp.
+//    CELL "test_harness"
+//	[ mark_RAM clk reset
+//		   do_init_req do_init_ack
+//		   mid_rd_req mid_rd_addr rd_ack rd_out mid_wr_req mid_wr_addr
+//			     mid_wr_inp wr_ack
+//	, inp_ifc clk reset rd_req rd_addr mid_rd_req rd_ack mid_rd_addr
+//	, inp_ifc clk reset wr_req (wr_addr,wr_inp) mid_wr_req wr_ack (mid_wr_addr,mid_wr_inp)
+//    ]
+//;
+//
+//
+//let p = flfun2pexlif test_harness;
+//p fseq ();
+//let vis = STE_debug (pexlif2fsm p);
+//vis;
+//
+//let ram line = sprintf "i1/i19/ram[%d][31:0]" line;
+//let rd_addr = sprintf "rd_addr[%d:0]" (ADDR_SZ-1);
+//let wr_addr = sprintf "wr_addr[%d:0]" (ADDR_SZ-1);
+//let init_mark_cnt = sprintf "i1/init_mark_cnt[%d:0]" (MARK_ADDR_SZ-1);
+//let snap_state = sprintf "i1/snap_state[2:0]";
+//
+//let tab_1 = draw_fanin vis (0) 100
+//		["rd_ack","rd_out","wr_ack", "do_init_ack"]
+//;
+//tab_1;
+//add_waveform vis ["clk"];
+//add_waveform vis ["rd_req"];
+//add_waveform vis ["rd_ack"];
+//add_waveform vis ["rd_out"];
+//add_waveform vis ["wr_req"];
+//add_waveform vis ["wr_ack"];
+//add_waveform vis ["rd_addr[7:0]"];
+//add_waveform vis ["wr_addr[7:0]"];
+//add_waveform vis ["wr_inp[1:0]"];
+//add_waveform vis [ram 0];
+//add_waveform vis [ram 1];
+//add_waveform vis ["do_snap_req"];
+//add_waveform vis [init_mark_cnt];
+//add_waveform vis [snap_state];
+//draw_set_time vis 0;
+//
+//let N = 150;
+//
+//let T0 = 6*(MEM_SIZE/MARK_BANKS)+4; // overwrite memory content
+//let T1 = T0+2;	// rd
+//let T2 = T1+6;	// rd
+//let T3 = T2+5;	// rd
+//let T4 = T3+7;	// wr
+//let T5 = T4+12;	// wr
+//let T6 = T5+8;	// rd
+//let T7 = T6+10;	// rd
+//let T8 = T7+8;	// rd
+//
+//let wl = map (\n. T,n,2*T0,2*T0+1)
+//	    (md_expand_vectors [ram 0, ram 1, ram 2, ram 3])
+//;
+//
+//let ant =
+//    //-------------------------------
+//    // PREAMBLE
+//    //-------------------------------
+//    "clk" is_clock N
+//  and
+//    "reset" is 1 in_cycle 0 otherwise 0 until N cycles
+//  and
+//    ram 0 is "a[31:0]" in_cycle T0
+//  and
+//    ram 1 is "b[31:0]" in_cycle T0
+//  and
+//    ram 2 is 0xffff in_cycle T0
+//  and
+//    ram 3 is 0xabba in_cycle T0
+//  and
+//    "do_init_req" is 1 in_cycle 2 otherwise 0 until N cycles
+//  and
+//    //-------------------------------
+//    // TEST
+//    //-------------------------------
+//    "rd_req" is 1 in_cycle T1 followed_by
+//		1 in_cycle T2 followed_by
+//		1 in_cycle T3 followed_by
+//		1 in_cycle T6 followed_by
+//		1 in_cycle T7 followed_by
+//		1 in_cycle T8 
+//	    otherwise 0 until N cycles
+//  and
+//    rd_addr is 0 in_cycle T1 followed_by
+//	       0xf in_cycle T2 followed_by
+//	       0x23 in_cycle T3 followed_by
+//	       0xf in_cycle T6 followed_by
+//	       0x3 in_cycle T7 followed_by
+//	       0x33 in_cycle T8 
+//	    otherwise X until N cycles
+//  and
+//    //-------------------------------
+//    // TEST 2
+//    //-------------------------------
+//    "wr_req" is 1 in_cycle T4 followed_by
+//		1 in_cycle T5 
+//	     otherwise 0 until N cycles
+//  and
+//    wr_addr is 0x13 in_cycle T4 followed_by
+//	       0xf in_cycle T5
+//	    otherwise X until N cycles
+//  and
+//    "wr_inp" is "c" in_cycle T4 followed_by
+//		"d" in_cycle T5
+//		otherwise X until N cycles
+//;
+//
+//
+//STE "-e -w 1000" vis wl ant [] [];
+//
+//
+////#endif
+//

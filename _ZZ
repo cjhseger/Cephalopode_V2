@@ -1,0 +1,293 @@
+
+let display_ROM rom =
+    ZZZ
+
+start_RAM_observer vis root_addr show_addresses->NO_ADDR =
+    val (ram_name, uram_name,cram_name) = get_ram_uram_and_cram_names vis then
+    let RAM2dot ste root_addr time dot_file =
+        let Ctp n = wexpr2bool [] (hw_destr n) in
+        let Caddr n = wexpr2bool [] (hw_destr n) in
+        let Cint n = wexpr2bool [] (hw_destr n) in
+        let Caint n = wexpr2bool [] (hw_destr n) in
+        let fp = fopen dot_file "w" then
+        (fprintf fp "digraph G {\n") fseq
+        (fprintf fp "node [shape=circle];\n") fseq
+        (fprintf fp "center = 1;\n") fseq
+        (fprintf fp "margin = 0.5;\n") fseq
+        (fprintf fp "ordering=out;\n") fseq
+        let rcnt = ref 0 then
+        let addr_done = ref [] then
+        letrec draw addr =
+            (
+                let res = assoc addr (deref addr_done) then
+                res
+            ) catch
+            (
+                let n = deref rcnt then
+                (rcnt := (n+1)) fseq
+                (addr_done := ((addr,n):(deref addr_done))) fseq
+                let get_ram_content ste time vrow =
+		    let live_row = vrow/16 in
+		    let live_col = 2*(vrow % 16)+1 in
+		    let live_nd =
+			sprintf "%s[%d][%d]" cram_name live_row live_col
+		    in
+                    let live_HL = get_trace_val ste live_nd time then
+		    let live = 
+			live_HL == (F,T) => 0 |
+			live_HL == (T,F) => 1 |
+                        eprintf "Non binary live value (%B,%B) in ctrl row %d"
+                                (fst live_HL) (snd live_HL) vrow
+		    then
+		    let row = 2*vrow + live in
+                    let nd_sz = hw_size {'0::node} in
+                    let addr_sz = hw_size {'0::addr} in
+                    let ram_nm r =
+                        sprintf "%s[%d][%d:0]" ram_name r (nd_sz-1)
+                    in
+                    let nds = md_expand_vector (ram_nm row) then
+                    let vals = map (\nd. get_trace_val ste nd time) nds in
+                    let cnv HL =
+                        HL == (T,F) => T |
+                        HL == (F,T) => F |
+                        eprintf "Non binary value (%B,%B) in row %d"
+                                (fst HL) (snd HL) row
+                    in
+                    let i = bv2num (map cnv vals) then
+		    let uram_nm r =
+                        sprintf "%s[%d][%d:0]" uram_name r (addr_sz-1)
+                    in
+                    let nds = md_expand_vector (uram_nm vrow) then
+                    let vals = map (\nd. get_trace_val ste nd time) nds in
+                    let cnv HL =
+                        HL == (T,F) => T |
+                        HL == (F,T) => F |
+			error "no back ptr"
+                    in
+                    let u = (bv2num (map cnv vals)) catch -1 then
+                    row, { ''i :: node}, u
+                in
+                val (prow,nd,ui) = get_ram_content ste time addr then
+		let srow =
+		    show_addresses == NO_ADDR => "" |
+		    show_addresses == GRAPH_ADDR => sprintf "0x%x:" addr |
+		    show_addresses == PHYSICAL_ADDR => sprintf "0x%x:" prow |
+		    error "Cannot happen"
+		then
+                let tp = Ctp (nd-->ntype) then
+                tp == (Ctp G_APP) =>
+                (
+                    let l = draw (bv2num (Caddr (nd-->left))) then
+                    let r = draw (bv2num (Caddr (nd-->right))) then
+                    (fprintf fp "n%d [label = \"%s@\"];\n" n srow) fseq
+                    (fprintf fp "n%d -> n%d [style=solid, color=red];\n" n l)
+                    fseq
+                    (fprintf fp "n%d -> n%d [style=solid, color=black];\n" n r)
+                    fseq
+		    (
+		      (
+			ui == -1 => () |
+			let u = assoc ui (deref addr_done) then
+			(fprintf fp "n%d -> n%d [dir=back, style=dashed, color=blue];\n"
+				    u n)
+		      ) catch ()
+		    )
+		    fseq
+                    n
+                )
+                |
+                tp == (Ctp G_COMB) =>
+                (
+                    let Cc n = wexpr2bool [] (hw_destr n) in
+                    let c = Cc (nd-->comb) then
+                    let tp =
+                        c == (Cc C_S) => "S" |
+                        c == (Cc C_K) => "K" |
+                        c == (Cc C_I) => "I" |
+                        c == (Cc C_LET) => "LET" |
+                        c == (Cc C_Y) => "Y" |
+                        c == (Cc C_SPRIME) => "S'" |
+                        c == (Cc C_SPRIMEPRIME) => "S''" |
+                        c == (Cc C_C) => "C" |
+                        c == (Cc C_CPRIME) => "C'" |
+                        c == (Cc C_B) => "B" |
+                        c == (Cc C_BSTAR) => "B*" |
+                        c == (Cc C_BPRIME) => "B'" |
+                        c == (Cc C_S1) => "S1" |
+                        c == (Cc C_S2) => "S2" |
+			c == (Cc C_L) =>
+			    let i = wexpr2bool [] (hw_destr (nd-->comb_idx)) in
+			    sprintf "L%d" (bv2int (list2bv i))
+			|
+			c == (Cc C_Cn) =>
+			    let i = wexpr2bool [] (hw_destr (nd-->comb_idx)) in
+			    sprintf "Cn%d" (bv2int (list2bv i))
+			|
+			sprintf "COMB_%s" (bv2str 10 (list2bv c))
+                    then
+                    (fprintf fp "n%d [label = \"%s%s\"];\n" n srow tp)
+                    fseq
+		    (
+		      (
+			ui == -1 => () |
+			let u = assoc ui (deref addr_done) then
+			(fprintf fp "n%d -> n%d [dir=back, style=dashed, color=blue];\n"
+				    u n)
+		      ) catch ()
+		    ) fseq n
+                )
+                | tp == (Ctp G_PRIM) =>
+                (
+                    let Cp n = wexpr2bool [] (hw_destr n) in
+                    let p = Cp (nd-->prim) then
+                    let tp =
+                        p = (Cp P_PLUS) => "+" |
+                        p = (Cp P_MINUS) => "-" |
+                        p = (Cp P_TIMES) => "*" |
+                        p = (Cp P_DIV) => "/" |
+                        p = (Cp P_MOD) => "%" |
+                        p = (Cp P_EQ) => "==" |
+                        p = (Cp P_NEQ) => "!=" |
+                        p = (Cp P_GT) => ">" |
+                        p = (Cp P_GEQ) => ">=" |
+                        p = (Cp P_AND) => "&" |
+                        p = (Cp P_OR) => "|" |
+                        p = (Cp P_NOT) => "~" |
+                        p = (Cp P_COND) => "ITE" |
+			p = (Cp P_FST) => "fst" |
+			p = (Cp P_SND) => "snd" |
+			p = (Cp P_TUPLE) => "TUPLE" |
+			p = (Cp P_HD) => "hd" |
+			p = (Cp P_TL) => "tl" |
+			p = (Cp P_IS_NIL) => "isNIL" |
+			p = (Cp P_CONS) => "CONS" |
+			p = (Cp P_NIL) => "NIL" |
+			sprintf "PRIM_%s" (bv2str 10 (list2bv p))
+                    then
+                    (fprintf fp "n%d [label = \"%s%s\"];\n" n srow tp)
+                    fseq
+		    (
+		      (
+			ui == -1 => () |
+			let u = assoc ui (deref addr_done) then
+			(fprintf fp "n%d -> n%d [dir=back, style=dashed, color=blue];\n"
+				    u n)
+		      ) catch ()
+		    )
+		    fseq n
+                )
+                | tp == (Ctp G_INDIR) =>
+                (
+                    let l = draw (bv2num (Caddr (nd-->left))) then
+                    (fprintf fp "n%d [label = \"%s->\"];\n" n srow) fseq
+                    (fprintf fp "n%d -> n%d [style=solid, color=red];\n" n l)
+		    fseq
+		    (
+		      (
+			ui == -1 => () |
+			let u = assoc ui (deref addr_done) then
+			(fprintf fp "n%d -> n%d [dir=back, style=dashed, color=blue];\n"
+				    u n)
+		      ) catch ()
+		    )
+                    fseq
+                    n
+                )
+                | tp == (Ctp G_CONS) =>
+                (
+                    let l = draw (bv2num (Caddr (nd-->left))) then
+                    let r = draw (bv2num (Caddr (nd-->right))) then
+                    (fprintf fp "n%d [label = \"%s:\"];\n" n srow) fseq
+                    (fprintf fp "n%d -> n%d [style=solid, color=red];\n" n l)
+                    fseq
+                    (fprintf fp "n%d -> n%d [style=solid, color=black];\n" n r)
+                    fseq
+                    n
+                )
+                | tp == (Ctp G_NIL) =>
+                (
+                    (fprintf fp "n%d [label = \"%sNIL\"];\n" n srow) fseq n
+                )
+                | tp == (Ctp G_INT) =>
+                (
+                    let i = bv2num (Cint (nd-->int)) then
+                    (fprintf fp "n%d [shape=box,label = \"%s%d\", color=blue];\n" n srow i)
+                    fseq
+		    (
+		      (
+			ui == -1 => () |
+			let u = assoc ui (deref addr_done) then
+			(fprintf fp "n%d -> n%d [dir=back, style=dashed, color=blue];\n"
+				    u n)
+		      ) catch ()
+		    )
+		    fseq
+		    n
+                )
+                | tp == (Ctp G_AINT) =>
+                (
+                    let i = bv2num (Caint (nd-->aint)) then
+                    (fprintf fp "n%d [shape=box,label = \"%s%d\", color=red];\n"
+				n srow i) fseq
+                    let next = bv2num (Caddr (nd-->left)) then
+                    next = 0 => n |
+                    let l = draw next then
+                    (fprintf fp "n%d -> n%d [style=solid, color=black];\n" n l)
+                    fseq
+		    (
+		      (
+			ui == -1 => () |
+			let u = assoc ui (deref addr_done) then
+			(fprintf fp "n%d -> n%d [dir=back, style=dashed, color=blue];\n"
+				    u n)
+		      ) catch ()
+		    )
+                    fseq
+                    n
+                )
+                |
+		    let bv = list2bv (wexpr2bool [] (hw_destr nd)) in
+		    let tp = sprintf "PRIM_%s" (bv2str 10 bv) in
+                    (fprintf fp "n%d [label = \"%s%s\"];\n" n srow tp) fseq n
+            )
+        in
+        (((draw root_addr) fseq ()) gen_catch
+        (\msg.
+            (str_is_substr "Non binary value " msg =>
+                fprintf stderr "\n--I-- %s\n" (hd (str_split msg "\n"))
+            |
+            str_is_substr "Non binary live value " msg =>
+                fprintf stderr "\n--I-- %s\n" (hd (str_split msg "\n"))
+            |
+                fprintf stderr "ERROR: %s\n" msg
+            ) fseq
+            let msg = sprintf "Not a valid graph at address %d at time %d"
+                              root_addr time
+            in
+            fprintf fp "n [shape=box,label=\"%s\"];\n" msg
+        )) fseq
+        (fprintf fp "\n}\n") fseq
+        (fclose fp)
+    in
+    let tmp_dir = mktempd "ram_graph" then
+    let dot_file = sprintf "%s/graph.dot" tmp_dir then
+    let ste = deref (vfsm2ste_r vis) then
+    let cur_time = deref (vfsm2cur_time_r vis) then
+    (RAM2dot ste root_addr cur_time dot_file) fseq
+    let w = tcl_eval [sprintf "display_dot %s {} fl_remove_ram_observer"
+                              dot_file]
+    then
+    (system (sprintf "/bin/rm -f %s" dot_file)) fseq
+    let display_fun ste time =
+        (RAM2dot ste root_addr time dot_file) fseq
+        (tcl_eval [sprintf "display_dot %s %s" dot_file w,
+		   sprintf "update",
+		   sprintf "zoom_to_fit %s.c" w]) fseq
+        (system (sprintf "/bin/rm -f %s" dot_file)) fseq
+        ()
+    in
+    let observer = add_observer vis display_fun then
+    (add_ram_observer w observer) fseq
+    ()
+;
+

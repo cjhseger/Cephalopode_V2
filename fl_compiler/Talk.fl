@@ -1,0 +1,13 @@
+load "mk_rom3.fl";
+
+forward_declare {pow2 :: int->int};
+let pow2 n =
+    n = 0 => 1
+	   | 2*(pow2 (n-1))
+;
+
+use_L	  := F;
+use_Cn	  := F;
+
+mk_cephalopode_rom "_talk.rom" "main" T;
+

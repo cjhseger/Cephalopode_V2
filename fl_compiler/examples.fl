@@ -1,0 +1,310 @@
+load (DIR^"mk_rom3.fl");
+
+let f1 x = x+3;
+let r1 = f1 7;
+mk_cephalopode_rom "_t1" "r1" F;
+//
+
+forward_declare {double::int->int};
+let double n = n = 0 => 1 | let sum = double (n-1) in sum+sum;
+let double6 = double 6;
+mk_cephalopode_rom "_double6.rom" "double6" T;
+
+
+forward_declare {fac::int->int};
+let fac n = n=0 => 1 | n * fac (n-1);
+let fac10 = fac 10;
+mk_cephalopode_rom "_fac10.rom" "fac10" F;
+
+
+forward_declare {fib_rec::int->(int list)->int};
+let fib_rec n ab  =
+	n = 1 => hd ab |
+	fib_rec (n-1) ((hd ab + hd (tl ab)):ab)
+;
+let fib n = fib_rec n [1,1];
+let fib10 = fib 10;
+mk_cephalopode_rom "_fib10.rom" "fib10" F;
+
+let foo x y z = (1*x)+(2*y)+(3*z);
+let bar = foo 1 2 3;
+mk_cephalopode_rom "_bar.rom" "bar" T;
+
+let my_list = [1,2,3,3,5,4];
+mk_cephalopode_rom "_list.rom" "my_list" T;
+
+let head_tl = hd (tl [(hd my_list),(hd (tl (tl my_list)))]);
+mk_cephalopode_rom "_head_tl.rom" "head_tl" T;
+
+forward_declare {lsum::(int list) -> int};
+let lsum l = l = [] => 0 | (hd l) + (lsum (tl l));
+
+let sum_my_list = lsum my_list;
+mk_cephalopode_rom "_sum_my_list.rom" "sum_my_list" T;
+
+let list_test = my_list = [] => 1 | ((my_list = [1,2,3,2,5]) => 11 | 99);
+mk_cephalopode_rom "_list_test.rom" "list_test" T;
+
+forward_declare {length:: (*a list) -> int};
+let length l = l = [] => 0 | 1 + length(tl l);
+
+// Mean and variance computation
+forward_declare {sq_diff :: int -> (int list) -> int};
+let sq_diff mean l = l = [] => 0 | 
+    let diff = mean - (hd l) in
+    diff*diff + sq_diff mean (tl l)
+;
+
+//let variance l =
+//    let sum = lsum l in
+//    let cnt = length l in
+//    let mean = sum/cnt in	    // <<<<< Need division!!!!!
+//    sq_diff mean l
+//;
+
+
+
+
+
+forward_declare {fib_rec1::int->int->int->int};
+let fib_rec1 n a b =
+	n = 1 => a |
+	fib_rec1 (n-1) (a+b) a
+;
+let fib n = fib_rec1 n 1 1;
+let fib3 = fib 3;
+mk_cephalopode_rom "_fib3.rom" "fib3" T;
+
+forward_declare {zipWith :: (*a -> *b -> *c)->(*a list)->(*b list)->(*c list)};
+let zipWith fn l1 l2 =
+    (fn (hd l1) (hd l2)):(zipWith fn (tl l1) (tl l2))
+;
+forward_declare {fibs :: int list};
+let fibs = 0 : 1 : (zipWith (\x.\y. x+y) fibs (tl fibs));
+forward_declare {el :: int -> *a list -> *a};
+let el n l = n = 1 => hd l | el (n-1) (tl l);
+let fib n = el n fibs;
+let fib3 = fib 3;
+mk_cephalopode_rom "_fib3.rom" "fib3" T;
+
+
+forward_declare {fib_rec::int->(int#int)->int};
+let fib_rec n ab  =
+	n = 1 => fst ab |
+	let a = fst ab in
+	let b = snd ab in
+	fib_rec (n-1) ((a + b),a)
+;
+let fib n = fib_rec n (1,1);
+//map fib [1,2,3,4,5,6,7];
+let fib3 = fib 3;
+mk_cephalopode_rom "_fib3.rom" "fib3" T;
+
+forward_declare {fib_rec::(int#int#int)->int};
+let fib_rec nab  =
+	let n = fst nab in
+	let ab = snd nab in
+	n = 1 => fst ab |
+	let a = fst ab in
+	let b = snd ab in
+	fib_rec ((n-1),((a + b),a))
+;
+let fib n = fib_rec (n,1,1);
+//map fib [1,2,3,4,5,6,7];
+let fib3 = fib 3;
+mk_cephalopode_rom "_fib3.rom" "fib3" T;
+
+let fib8 = fib 8;
+//mk_cephalopode_rom "_fib8.rom" "fib8" T;
+
+
+//forward_declare {fwd_sum::int->int};
+//let fwd_sum n = n = 0 => 0 | n + fwd_sum (n-1);
+//mk_cephalopode_rom (DIR^"_fwd_sum.rom") "fwd_sum";
+
+
+let cmp x y = (x = y) => 12 | 13;
+let cmp_neq = cmp 2 3;
+let cmp_eq = cmp 2 2;
+mk_cephalopode_rom (DIR^"_cmp_eq.rom") "cmp_eq";
+mk_cephalopode_rom (DIR^"_cmp_neq.rom") "cmp_neq";
+
+let abs_sum {x::int} y = x >= y => x-y | y-x;
+let asum1 = abs_sum 3 5;
+let asum2 = abs_sum 5 3;
+mk_cephalopode_rom (DIR^"_asum1.rom") "asum1";
+mk_cephalopode_rom (DIR^"_asum2.rom") "asum2";
+
+
+let e0 = 2 + 3;
+mk_cephalopode_rom (DIR^"_e0.rom") "e0";
+
+let sub0 = 5 - 2;
+mk_cephalopode_rom (DIR^"_sub0.rom") "sub0";
+
+let sub1 = 2 - 5;
+mk_cephalopode_rom (DIR^"_sub1.rom") "sub1";
+
+let sub2 = 2 - 2;
+mk_cephalopode_rom (DIR^"_sub2.rom") "sub2";
+
+let sub3 = 2 + (0-2);
+mk_cephalopode_rom (DIR^"_sub3.rom") "sub3";
+
+let e1 = 16383 + 16300;
+mk_cephalopode_rom (DIR^"_e1.rom") "e1";
+
+let dummy = let f x y = (x-y)+(y-x) in f 2 3;
+mk_cephalopode_rom (DIR^"_dummy.rom") "dummy";
+
+let fib6 = letrec fib n x y = n = 1 => x | fib (n-1) y (x+y) in fib 6 1 1;
+mk_cephalopode_rom (DIR^"_fib6.rom") "fib6";
+
+letrec fib n = 1 >= n => 1 | fib (n-1) + fib (n-2);
+let fib5 = fib 5;
+mk_cephalopode_rom (DIR^"_fib5.rom") "fib5";
+
+let fib3 = letrec fib n = 1 >= n => 1 | fib (n-1) + fib (n-2) in fib 3;
+mk_cephalopode_rom (DIR^"_fib3.rom") "fib3";
+
+letrec double n = n = 0 => 1 | let sum = double (n-1) in sum+sum;
+let double3 = double 3;
+mk_cephalopode_rom (DIR^"_double3.rom") "double3";
+
+letrec sum n = n = 0 => 0 | n + sum (n-1);
+let sum3 = sum 3;
+mk_cephalopode_rom (DIR^"_sum3.rom") "sum3";
+
+letrec sum n = n = 1 => 1 | n + sum (n-1);
+let sum2 = sum 2;
+mk_cephalopode_rom (DIR^"_sum2.rom") "sum2";
+
+//let e2 = 2048+0;
+//mk_cephalopode_rom (DIR^"_e2.rom") "e2";
+
+
+let paper_expr = (\x. 1+x) 3;
+mk_cephalopode_rom (DIR^"_paper_expr.rom") "paper_expr";
+
+let paper_expr2 = (\x. 1+x) 13;
+mk_cephalopode_rom (DIR^"_paper_expr2.rom") "paper_expr2";
+
+let paper_expr3 = (1+9)+5;
+mk_cephalopode_rom (DIR^"_paper_expr3.rom") "paper_expr3";
+
+//let paper_expr3 = (\x. (1+9)+5) 13;
+//mk_cephalopode_rom (DIR^"_paper_expr3.rom") "paper_expr3";
+
+let paper_expr4 = (\x. (1+9)+x) 13;
+mk_cephalopode_rom (DIR^"_paper_expr4.rom") "paper_expr4";
+
+let paper_expr5 = (\x. (1+9)+(x-1)) 13;
+mk_cephalopode_rom (DIR^"_paper_expr5.rom") "paper_expr5";
+
+
+let f x y = x+2*y+1;
+let e = f 1 (2+2);
+mk_cephalopode_rom (DIR^"_e.rom") "e";
+
+letrec fac n = n = 0 => 1 | n* fac (n-1);
+
+let fac_example = fac 4;
+mk_cephalopode_rom (DIR^"_fac_example.rom") "fac_example";
+
+letrec fac2 n acc = n = 0 => acc | fac2 (n-1) (n*acc);
+
+let fac2_example = fac2 4 1;
+mk_cephalopode_rom (DIR^"_fac2_example.rom") "fac2_example";
+
+letrec fac3 n = n = 0 => 1 | fac3 (n-1) * n;
+
+let fac3_example = fac3 4;
+mk_cephalopode_rom (DIR^"_fac3_example.rom") "fac3_example";
+
+
+//letrec fac n = n = 0 => 1 | n* fac (n-1);
+//let choose n r = fac n / (fac (n-r) * fac r);
+//let sel_ex = choose 4 2;
+//mk_cephalopode_rom (DIR^"_sel_ex.rom") "sel_ex";
+
+
+//let benchmark = choose 17 9;
+//mk_cephalopode_rom (DIR^"_benchmark.rom") "benchmark";
+
+
+letrec sum c n = n = 0 => 0 | c+(sum c (n-1))
+;
+let benchmark1 = sum 30 10;
+mk_cephalopode_rom (DIR^"_benchmark1.rom") "benchmark1";
+
+
+forward_declare {pow:: int->int->int};
+let pow c n = n = 0 => 1 | c*(pow c (n-1));
+let benchmark2 = pow 3 10;
+mk_cephalopode_rom (DIR^"_benchmark2.rom") "benchmark2";
+
+quit;
+
+//// In general
+//let gN1 = 2**(3*INT_SZ)-12;
+//let gN2 = 142;
+//let gN3 = 2**(3*INT_SZ)-22;
+//let gN4 = 2**(INT_SZ) + 3;
+//let gN4 = 67;
+//let gN5 = 22;
+//let gN6 = 11;
+//let gN7 = 28;
+//let gN8 = 2**(3*INT_SZ)-22;
+//
+////// For INT_SZ = 6
+////let N1 = 262132;
+////let N2 = 142;
+////let N3 = 262122;
+////let N4 = 67;
+////let N5 = 22;
+////let N6 = 11;
+////let N7 = 28;
+////let N8 = 262122;
+//
+//// For INT_SZ = 14
+//let N1 = 4398046511092;
+//let N2 = 142;
+//let N3 = 4398046511082;
+//let N4 = 67;
+//let N5 = 22;
+//let N6 = 11;
+//let N7 = 28;
+//let N8 = 4398046511082;
+//
+////// For INT_SZ = 63
+////let N1 = 784637716923335095479473677900958302012794430558004314100;
+////let N2 = 142;
+////let N3 = 784637716923335095479473677900958302012794430558004314090;
+////let N4 = 67;
+////let N5 = 22;
+////let N6 = 11;
+////let N7 = 28;
+////let N8 = 784637716923335095479473677900958302012794430558004314090;
+//
+//gN1 = N1 => () | error "INT_SZ and N1 are inconsistent!";
+//
+//N1 fseq N2 fseq N3 fseq N4 fseq N5 fseq N5 fseq N7 fseq N8 fseq ();
+//let benchmark3a = N1/N2;
+//let benchmark3b = N3/N4;
+//let benchmark3c = N5/N6;
+//let benchmark3d = N7/N8;
+//
+//mk_cephalopode_rom (DIR^"_benchmark3a.rom") "benchmark3a";
+//mk_cephalopode_rom (DIR^"_benchmark3b.rom") "benchmark3b";
+//mk_cephalopode_rom (DIR^"_benchmark3c.rom") "benchmark3c";
+//mk_cephalopode_rom (DIR^"_benchmark3d.rom") "benchmark3d";
+//
+//let benchmark3 = (N1*N2+N3*N4+N5*N6+N7*N8);
+//mk_cephalopode_rom (DIR^"_benchmark3.rom") "benchmark3";
+//
+//letrec fib n = 1 >= n => 1 | fib (n-1) + fib (n-2);
+//let benchmark4 = fib 4;
+//mk_cephalopode_rom (DIR^"_benchmark4.rom") "benchmark4";
+//
+//
+//quit;

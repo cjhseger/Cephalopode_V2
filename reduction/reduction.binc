@@ -1,0 +1,22 @@
+#include "../cephalopode_types.binc"
+#include "reduction_types.binc"
+
+// Actions
+
+action pause:
+	    (p:bit reading [] writing [])
+	    provided by external via {{ data = "immediate" }}
+;
+
+action comb_unit:
+	     (n:Node -> p:Addr -> up:Addr -> res:GraphPtr
+		reading [MEM] writing [MEM])
+	    provided by external via std_proto
+;
+
+action prim_unit:
+	     (n:Node -> p:Addr -> up:Addr -> new_p_up:GraphPtr
+		reading [MEM] writing [MEM])
+	    provided by external via std_proto
+;
+

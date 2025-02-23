@@ -1,0 +1,10 @@
+cload "mk_rom3.fl";
+
+forward_declare {factorial::int->int};
+let factorial n = n=0 => 1 | n * factorial (n-1);
+
+let main = (factorial 6) = 720;
+
+mk_cephalopode_rom "_Factorial6.rom" "main";
+
+

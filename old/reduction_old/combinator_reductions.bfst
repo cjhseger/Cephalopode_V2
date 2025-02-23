@@ -1,0 +1,113 @@
+
+module combinator_reductions;
+protocol std_proto;
+
+function main : comb:Combinator -> redex:Addr ->
+		a1:Addr -> a2:Addr -> a3:Addr -> a4:Addr -> res:Node
+{
+    var Node n1, n2, n3, n4;
+    var Addr a1, a2, a3, a4;
+
+
+	{
+            comb  = n-->comb;
+            arity = get_comb_arity comb;
+	    a1 = 0; a2 = 0; a3 = 0; a4 = 0;
+	    if( arity >= 1 ) {
+		p = up; n = do mem_read p; up = n-->up;
+		a1 = n-->right;
+	    }
+	    if( arity >= 2 ) {
+		p = up; n = do mem_read p; up = n-->up;
+		a2 = n-->right;
+	    }
+	    if( arity >= 3 ) {
+		p = up; n = do mem_read p; up = n-->up;
+		a3 = n-->right;
+	    }
+	    if( arity >= 4 ) {
+		p = up; n = do mem_read p; up = n-->up;
+		a4 = n-->right;
+	    }
+	    if( comb == C_I ) {
+		n-->ntype = G_INDIR;
+		n-->left = a1;
+	    } else if( comb == C_K ) {
+		n-->ntype = G_INDIR;
+		n-->left = a1;
+	    } else if( comb == C_S ) {
+		new_addr1 = do mem_alloc; n1-->ntype = G_APP;
+		n1-->left = a1; n1-->right = a3;
+		do mem_write new_addr1 n1;
+		new_addr2 = do mem_alloc; n2-->ntype = G_APP;
+		n2-->left = a2; n2-->right = a3;
+		do mem_write new_addr2 n2;
+		n-->ntype = G_APP; n-->left = n1; n-->right = n2;
+	    } else if( comb == C_SPRIME ) {
+		new_addr1 = do mem_alloc; n1-->ntype = G_APP;
+		n1-->left = a2; n1-->right = a4;
+		do mem_write new_addr1 n1;
+		new_addr2 = do mem_alloc; n2-->ntype = G_APP;
+		n2-->left = a1; n2-->right = n1;
+		do mem_write new_addr2 n2;
+		new_addr3 = do mem_alloc; n3-->ntype = G_APP;
+		n3-->left = a3; n3-->right = a4;
+		do mem_write new_addr3 n3;
+		n-->ntype = G_APP; n-->left = n2; n-->right = n3;
+	    } else if( comb == C_C ) {
+		new_addr1 = do mem_alloc; n1-->ntype = G_APP;
+		n1-->left = a1; n1-->right = a3;
+		do mem_write new_addr1 n1;
+		n-->ntype = G_APP; n-->left = n1; n-->right = a2;
+	    } else if( comb == C_CPRIME ) {
+		new_addr1 = do mem_alloc; n1-->ntype = G_APP;
+		n1-->left = a2; n1-->right = a4;
+		do mem_write new_addr1 n1;
+		new_addr2 = do mem_alloc; n2-->ntype = G_APP;
+		n2-->left = a1; n2-->right = n1;
+		do mem_write new_addr2 n2;
+		n-->ntype = G_APP; n-->left = n2; n-->right = a3;
+	    } else if( comb == C_B ) {
+		new_addr1 = do mem_alloc; n1-->ntype = G_APP;
+		n1-->left = a2; n1-->right = a3;
+		n-->ntype = G_APP; n-->left = a1; n-->right = n1;
+		do mem_write new_addr1 n1;
+	    } else if( comb == C_BSTAR ) {
+		new_addr1 = do mem_alloc; n1-->ntype = G_APP;
+		n1-->left = a3; n1-->right = a4;
+		do mem_write new_addr1 n1;
+		new_addr2 = do mem_alloc; n2-->ntype = G_APP;
+		n2-->left = a2; n2-->right = n1;
+		do mem_write new_addr2 n2;
+		n-->ntype = G_APP; n-->left = a1; n-->right = n2;
+	    } else if( comb == C_S1 ) {
+		n-->ntype = G_APP; n-->left = a2; n-->right = a1;
+	    } else if( comb == C_S2 ) {
+		new_addr1 = do mem_alloc; n1-->ntype = G_APP;
+		n1-->left = a2; n1-->right = a1;
+		do mem_write new_addr1 n1;
+		n-->ntype = G_APP; n-->left = a3; n-->right = n1;
+	    } else if( comb == C_BPRIME ) {
+		new_addr1 = do mem_alloc; n1-->ntype = G_APP;
+		n1-->left = a1; n1-->right = a2;
+		do mem_write new_addr1 n1;
+		new_addr2 = do mem_alloc; n2-->ntype = G_APP;
+		n2-->left = a3; n2-->right = a4;
+		do mem_write new_addr2 n2;
+		n-->ntype = G_APP; n-->left = n1; n-->right = n2;
+	    } else if( comb == C_Y ) {
+		n-->ntype = G_APP; n-->left = a1; n-->right = p;
+	    } 
+ 
+	    // Write back redex. NOTE: back pointer remains.
+            n-->up = up;
+            do mem_write p n;
+ 
+            // TODO later optimization: avoid redex being re-read
+	    // (but be careful with its up field)
+	}
+
+	
+    
+	
+	

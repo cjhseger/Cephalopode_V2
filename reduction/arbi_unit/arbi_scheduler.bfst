@@ -1,0 +1,267 @@
+#include "primitives.binc"
+
+// Actions
+action arb_rf_length:ArbRfLength provided by external via std_proto;
+action arb_rf_new:ArbRfNew provided by external via std_proto;
+action arb_rf_alloc:ArbRfAlloc provided by external via std_proto;
+action arb_rf_get:ArbRfGet[2] provided by external via std_proto;
+action arb_rf_set:ArbRfSet provided by external via std_proto;
+action arb_rf_pop:ArbRfPop provided by external via std_proto;
+action arb_rf_free:ArbRfFree provided by external via std_proto;
+//
+action int2arbi:Int2Arbi provided by external via std_proto;
+action arbi2int:Arbi2Int provided by external via std_proto;
+action arbi_trim:ArbiTrim provided by external via std_proto;
+
+action adder:
+            (arg1:Aint -> arg2:Aint -> cin:bit -> res:Aint
+                reading [] writing [])
+            provided by external via comb_proto
+;
+
+action hmul:
+            (arg1:HAint -> arg2:HAint -> res:Aint
+                reading [] writing [])
+            provided by external via comb_proto
+;
+
+
+// Macros
+define ZERO	 = ((fl "{'0::Aint}") :: Aint);
+define ONE	 = ((fl "{'1::Aint}") :: Aint);
+define MINUS_ONE = ((fl "{'-1::Aint}") :: Aint);
+define MSB	 = ((fl "\\z. hd (tobits z)") :: Aint -> bit);
+define Upper	 = ((fl "\\z. Upper z") :: Aint -> HAint);
+define Lower	 = ((fl "\\z. Lower z") :: Aint -> HAint);
+define ExtUpper	 = ((fl "\\z. ZX (Upper z)") :: Aint -> Aint);
+define ExtLower	 = ((fl "\\z. ZX (Lower z)") :: Aint -> Aint);
+define Merge	 = ((fl "\\h.\\l. Merge h l") :: Aint -> Aint -> Aint);
+
+module arbi_scheduler;
+protocol std_proto;
+
+function main : op:Primitive -> arg1:Addr -> arg2:Addr -> res:Node
+{
+    var index	x, y, z;
+    var Aint	wx, wy, wz, lastx, lasty;
+    var alen	lx, ly, lz, i, l;
+    var bit	carry;
+    var bit	mx, my, mz, subtract, eq;
+
+    x = do int2arbi arg1;
+    y = do int2arbi arg2;
+    lx = do arb_rf_length x;
+    ly = do arb_rf_length y;
+
+    // ------------------------------------------------------------------
+    if( op == P_PLUS | op == P_MINUS ) {
+	subtract = (op == P_MINUS);
+	if( subtract ) {
+	    // Make y one's complement
+	    for(i = 0; i < ly; i++) {
+		wy = do arb_rf_get y i;
+		do arb_rf_set y i (~wy);
+	    }
+	}
+	// Make x the longer chain
+	if( (lx < ly) ) {
+	    (x,lx,y,ly) = (y,ly,x,lx);
+	}
+	z = do arb_rf_new;
+	do arb_rf_alloc z (lx+1);
+	// Add an extra 1 to make y two's complement
+	carry = if subtract then 1 else 0;
+	// Now start adding chunks
+	for(i = 0; i < ly; i++) {
+	    wx = do arb_rf_get x i;
+	    wy = do arb_rf_get y i;
+	    wz = do adder wx wy carry;
+	    do arb_rf_set z i wz;
+	    mx = MSB(wx);
+	    my = MSB(wy);
+	    mz = MSB(wz);
+	    carry = ((mx & my) | ((mx | my) & ~mz));
+	}
+	if(lx > ly) {
+	    /* sign extend y, and continue propagating carries  */
+	    my = MSB(wy);
+	    wy = if MSB(wy) then MINUS_ONE else ZERO;
+	    while( i < lx ) {
+		wx = do arb_rf_get x i;
+		wz = do adder wx wy carry;
+		do arb_rf_set z i wz;
+		mx = MSB(wx);
+		my = MSB(wy);
+		mz = MSB(wz);
+		carry = ((mx & my) | ((mx | my) & ~mz));
+		i = i+1;
+	    }
+	}
+    
+	if( (MSB(wx) == MSB(wy)) & ~(MSB(wz) == MSB(wx)) ) {
+	    do arb_rf_set z lx (if MSB(wz) then ZERO else MINUS_ONE);
+	} else {
+	    do arb_rf_pop z;
+	    do arbi_trim z;
+	}
+	res = do arbi2int z;
+	do arb_rf_free;
+	return;
+    }
+    // ------------------------------------------------------------------
+    else if( op == P_EQ | op == P_NEQ) {
+	res-->ntype = G_INT;
+	if( lx != ly ) {
+	    res-->int = (if (op == P_EQ) then 0 else 1);
+	    do arb_rf_free;
+	    return;
+	}
+	for(i = 0; i < ly; i++) {
+	    wx = do arb_rf_get x i;
+	    wy = do arb_rf_get y i;
+	    if( ~(wx == wy) ) {
+		res-->int = (if (op == P_EQ) then 0 else 1);
+		do arb_rf_free;
+		return;
+	    }
+	}
+	res-->int = (if (op == P_EQ) then 1 else 0);
+	do arb_rf_free;
+	return;
+    }
+    // ------------------------------------------------------------------
+    else if( op == P_GT | op == P_GEQ ) {
+	res-->ntype = G_INT;
+	l = (if (lx < ly) then ly else lx);
+	i = 0;
+	lastx = 0;
+	lasty = 0;
+	eq = 0;
+	for(i = 0; i < l; i = i+1) {
+	    --%<--
+	    if( i >= lx ) {
+		wx = if ( MSB(lastx) ) then MINUS_ONE else ZERO;
+	    } else {
+		wx = do arb_rf_get x i;
+	    }
+	    lastx = wx;
+	    if( i >= ly ) {
+		wy = if ( MSB(lasty) ) then MINUS_ONE else ZERO;
+	    } else {
+		wy = do arb_rf_get y i;
+	    }
+	    lasty = wy;
+	    eq = eq & (wx == wy);
+	}
+	if( (lastx > lasty) | (op == P_GEQ) & eq ) {
+	    res-->int = 1;
+	} else  {
+	    res-->int = 0;
+	}
+	do arb_rf_free;
+	return;
+    }
+    // ------------------------------------------------------------------
+    else if( op == P_TIMES ) {
+	z = call mult x y;
+	res = do arbi2int z;
+	do arb_rf_free;
+	return;
+    }
+    return;
+}
+
+inline function mult : x:index -> y:index -> z:index
+{
+    var bit	x_is_neg, y_is_neg;
+    var index	ax, ay;
+    var alen	lx, ly, lp, lz, i, jmax, kmax, j, k;
+    var Aint	p0, p1, p2, p3, pp, xx, yy;
+    var HAint	xl, yl, xh, yh;
+
+    x_is_neg = call is_negative x;
+    y_is_neg = call is_negative y;
+    ax = if( x_is_neg ) then call negate x else x;
+    ay = if( y_is_neg ) then call negate y else y;
+    
+    lx = do arb_rf_length x;
+    ly = do arb_rf_length y;
+    lz = lx+ly;
+    z = do arb_rf_new;
+    do arb_rf_alloc z (lz);
+    p0 = ZERO;
+    p1 = ZERO;
+    for(i = 0; i < lz; i++) {
+	p2 = ZERO;
+	p3 = ZERO;
+	jmax = if( i < lx) then i else (lx-1);
+	kmax = if( i < ly) then i else (ly-1);
+	for(j = i-kmax; j <= jmax; j++) {
+	    k = i-j;
+	    xx = do arb_rf_get x j;
+	    xh = Upper xx;
+	    xl = Lower xx;
+	    yy = do arb_rf_get y k;
+	    yh = Upper yy;
+	    yl = Lower yy;
+	    pp = do hmul xl yl;
+	    p0 = do adder p0 (ExtLower pp) 0;
+	    p1 = do adder p1 (ExtUpper pp) 0;
+	    pp = do hmul xl yh;
+	    p1 = do adder p1 (ExtLower pp) 0;
+	    p2 = do adder p2 (ExtUpper pp) 0;
+	    pp = do hmul xh yl;
+	    p1 = do adder p1 (ExtLower pp) 0;
+	    p2 = do adder p2 (ExtUpper pp) 0;
+	    pp = do hmul xh yh;
+	    p2 = do adder p2 (ExtLower pp) 0;
+	    p3 = do adder p3 (ExtUpper pp) 0;
+	}
+	p1 = do adder p1 (ExtUpper p0) 0;
+	p2 = do adder p2 (ExtUpper p1) 0;
+	do arb_rf_set z i (Merge p1 p0);
+	p0 = p2;
+	p1 = p3;
+    }
+    z = if( x_is_neg ^ y_is_neg ) then call negate z else z;
+    do arbi_trim z;
+    return;
+}
+
+inline function is_negative : x:index -> res:bit
+{
+    var alen	l;
+    var Aint	msd;
+    l = do arb_rf_length x;
+    msd = do arb_rf_get x (l-1);
+    res = MSB(msd);
+    return;
+}
+
+inline function negate : x:index -> z:index
+{
+    var alen	l, i;
+    var Aint	carry, wx, wz;
+    var bit	mx, mz;
+
+    z = do arb_rf_new;
+    l = do arb_rf_length x;
+    do arb_rf_alloc z (l+1);
+    carry = ONE;
+    for(i = 0; i < l; i++) {
+	wx = ~(do arb_rf_get x i);
+	wz = do adder wx carry 0;
+	do arb_rf_set z i wz;
+	mx = MSB(wx);
+	mz = MSB(wz);
+	carry = if (mx & ~mz) then ONE else ZERO;
+    }
+    if( ~(MSB(wz) == MSB(wx)) ) {
+	do arb_rf_set z l (if MSB(wz) then ZERO else MINUS_ONE);
+    } else {
+	do arb_rf_pop z;
+	do arbi_trim z;
+    }
+    return;
+}
+

@@ -1,0 +1,10 @@
+load "idv.fl";
+
+let load_files =
+    map (\f.DIR^f) ["../types.fl", "reduction_types.fl", "combinator_list.fl"]
+;
+
+bifrostfl2bundle "comb_unit" load_files T;
+
+quit;
+

@@ -1,0 +1,13 @@
+#include "primitives.binc"
+
+// Actions
+action add_sub:AddSubUnit provided by external via std_proto;
+
+module add_unit;
+protocol std_proto;
+
+function main : arg1:Addr -> arg2:Addr -> res:Node
+{
+    res = do add_sub 0 arg1 arg2;
+    return;
+}

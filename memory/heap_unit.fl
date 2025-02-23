@@ -1,0 +1,66 @@
+cload (DIR^"types.fl");
+
+
+BUNDLE "B_mem_get_heap"
+        [("clkenb", "bit"), ("req", "bit")]
+        [("ack", "bit"), ("addr", "addr")]
+;
+
+BUNDLE "B_set_top_of_heap"
+        [("clkenb", "bit"), ("req", "bit"), ("addr", "addr")]
+        [("ack", "bit")]
+;
+
+BUNDLE "B_set_snapshot_top_addr"
+        [("clkenb", "bit"), ("req", "bit")]
+        [("ack", "bit")]
+;
+
+BUNDLE "B_get_snapshot_top_addr"
+        []
+        [("addr", "addr")]
+;
+
+BUNDLE "B_record_status"
+        [("clkenb", "bit"), ("req", "bit"), ("status", "Int")]
+        [("ack", "bit")]
+;
+
+let heap_unit =
+    bit_input			    clk.
+    bit_input			    reset.
+    B_set_top_of_heap_input	    S_set_top_of_heap.
+    B_mem_get_heap_input	    S_mem_get_heap.
+    B_set_snapshot_top_addr_input   S_set_snapshot_top_addr.
+    B_get_snapshot_top_addr_input   S_get_snapshot_top_addr.
+    B_record_status_output	    S_record_status.
+    //
+    addr_internal		    top snapshot_top next.
+    bit_internal		    en eclk.
+    bit_internal		    report.
+    //
+    CELL "heap_unit" [
+	en <- S_mem_get_heap-->clkenb '|'
+	      S_set_top_of_heap-->clkenb '|'
+	      S_set_snapshot_top_addr-->clkenb,
+	clockgate_with_reset clk reset en eclk,
+	next <- top '+' '1,
+	STATE eclk top [
+	    (reset,			'0),
+	    (S_set_top_of_heap-->req,	S_set_top_of_heap-->addr),
+	    (S_mem_get_heap-->req,	next)
+	],
+	report <- (top '=' ''(MEM_SIZE-1)),
+	S_record_status-->clkenb <- report,
+	S_record_status-->req <- report,
+	S_record_status-->status <- ''0xdead,
+	re_ff_en_reset eclk (S_set_snapshot_top_addr-->req) reset
+			    top snapshot_top, 
+	S_set_snapshot_top_addr-->ack <- S_set_snapshot_top_addr-->req,
+	S_get_snapshot_top_addr-->addr <- snapshot_top,
+	S_mem_get_heap-->addr <- next,
+	S_set_top_of_heap-->ack <- S_set_top_of_heap-->req,
+	S_mem_get_heap-->ack <- S_mem_get_heap-->req
+];
+
+create_default_version heap_unit;

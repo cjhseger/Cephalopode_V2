@@ -1,0 +1,61 @@
+cload (DIR^"types.fl");
+
+let cRAM_LATENCY = 0;
+
+MEMORY "cRAM" [(CRAM_SIZE, "caddr")] "ctrl_word";
+
+let behavioral_cRAM =
+    bit_input		clk.
+    bit_input		rw.
+    caddr_input     addr.
+    ctrl_word_input	inp.
+    ctrl_word_output	out.
+    //
+    bit_internal        addr_rdy rw_rdy inp_rdy rd_rdy wr_rdy.
+    cRAM_internal	cram tmp_new_cram new_cram.
+    ctrl_word_internal  local_rd_data.
+    CELL "behavioral_cRAM" [
+        is_stable cRAM_LATENCY addr addr_rdy,
+        is_stable cRAM_LATENCY rw rw_rdy,
+        is_stable cRAM_LATENCY inp inp_rdy,
+        rd_rdy <- addr_rdy '&' rw_rdy,
+        Read_cRAM cram addr local_rd_data,
+        out <- (IF (rd_rdy '&' rw) THEN local_rd_data ELSE 'X),
+        Write_cRAM cram addr inp tmp_new_cram,
+        wr_rdy <- rd_rdy '&' inp_rdy,
+        new_cram <- (IF (wr_rdy '&' '~' rw) THEN tmp_new_cram ELSE cram),
+	re_ff clk new_cram cram
+];
+
+
+BUNDLE "B_cRAM_read" 
+	[("addr", "caddr")] 
+	[("data", "ctrl_word")]
+;
+
+BUNDLE "B_cRAM_write"
+        [("clkenb", "bit"), ("req", "bit"), ("addr", "caddr"), ("data", "ctrl_word")]
+        [("ack", "bit")]
+;
+
+
+let cRAM =
+    bit_input		clk.
+    bit_input		reset.
+    B_cRAM_read_input	S_cRAM_read.
+    B_cRAM_write_input	S_cRAM_write.
+    //
+    caddr_internal	my_addr.
+    bit_internal	rw.
+    bit_internal	done_wr.
+    CELL "cRAM" [
+	rw <- '~' (S_cRAM_write-->req),
+	my_addr <- (IF (S_cRAM_write-->req) THEN (S_cRAM_write-->addr)
+					    ELSE (S_cRAM_read-->addr)),
+	//
+	behavioral_cRAM clk rw my_addr (S_cRAM_write-->data) (S_cRAM_read-->data),
+	//
+        ackpulse_delay (cRAM_LATENCY/2) clk reset
+                        (S_cRAM_write-->req) (S_cRAM_write-->ack)
+];
+create_default_version cRAM;

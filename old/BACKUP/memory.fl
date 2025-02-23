@@ -1,0 +1,8 @@
+load "idv.fl";
+
+let load_files = map (\f.DIR^f) ["types.fl"];
+
+bifrostfl2bundle "memory" load_files T;
+
+quit;
+

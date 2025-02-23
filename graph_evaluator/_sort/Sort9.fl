@@ -1,0 +1,47 @@
+cload (DIR^"../../fl_compiler/mk_rom3.fl");
+
+load "InputSort.fl";
+
+forward_declare {merge :: (int list) -> (int list) -> (int list)};
+let merge l1 l2 =
+    l1 = [] => l2 |
+    l2 = [] => l1 |
+    (hd l1) > (hd l2) => ((hd l2) : (merge l1 (tl l2))) |
+    ((hd l1) : (merge (tl l1) l2))
+;
+
+forward_declare {split_list :: (int list) -> ((int list)#(int list))};
+let split_list l =
+    l = [] => [],[] |
+    (tl l) = [] => [hd l],[] |
+    ((hd l):(fst (split_list (tl (tl l))))),
+    ((hd (tl l)):(snd (split_list (tl (tl l)))))
+;
+
+forward_declare {merge_sort :: (int list) -> (int list)};
+let merge_sort l =
+    l = [] => [] |
+    (tl l) = [] => l |
+    let tmp = split_list l in
+    merge (merge_sort (fst tmp)) (merge_sort (snd tmp))
+;
+
+
+forward_declare {list_last :: (int list) -> int};
+let list_last l = 
+    tl l = [] => hd l |
+    list_last (tl l)
+;
+
+let res =
+    let l = merge_sort xs in
+    let first = hd l in
+    let last = list_last l in
+    last-first
+;
+
+let main = (res = answer);
+
+mk_cephalopode_rom "Sort.rom" "main";
+
+quit;

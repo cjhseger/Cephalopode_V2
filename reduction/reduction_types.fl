@@ -1,0 +1,24 @@
+let MAX_ARITY = 7;
+let ARITY_SZ = bits_needed MAX_ARITY;
+TYPE "arity" ARITY_SZ;
+
+let MAX_ALLOC = 3;
+let ALLOC_CNT = bits_needed MAX_ALLOC;
+TYPE "alloc_cnt" ALLOC_CNT;
+
+let MAX_ARB_RF = 8;
+let ARB_RF_CNT = bits_needed (MAX_ARB_RF-1);
+TYPE "index" ARB_RF_CNT;
+
+let NBR_ARB_REGS = 128;	    // Size of fast arb_int dual-ported scratch ram.
+
+let MAX_ARB_LEN = NBR_ARB_REGS/MAX_ARB_RF;
+let ARB_LEN_BITS = bits_needed MAX_ARB_LEN;
+TYPE "alen" ARB_LEN_BITS;
+
+//let GET_CHUNK {bit::Int} = 
+//    let res = frombits (butlastn AINT_SZ (tobits bit)) in
+//    {res :: alen}
+//;
+
+

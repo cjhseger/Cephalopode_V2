@@ -1,0 +1,110 @@
+\documentclass[a4paper]{article}
+
+\title{Cephalopode Snapshot Memory Architecture}
+\author{Jeremy Pope}
+\date{2023-05-23}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\begin{document}
+\maketitle
+
+\section{Idea}
+
+A memory system that supports ordinary reads and writes, and also reads from a saved ``snapshot'' of the contents of RAM.
+%
+A redirect-on-write scheme is used to make this comparatively efficient.
+%
+Allocation and free-list maintenance is not handled here, but is rather implemented on top of this by a different unit.
+
+\section{Design}
+
+\subsection{Data stored}
+
+Each address is associated with:
+\begin{itemize}
+\item A cell in main memory, consisting of two nodes (``A'' and ``B'').
+\item Three bits of metadata in a smaller, high-speed memory:
+\begin{itemize}
+\item \code{live}, indicating which of A and B is the current version of the node.
+\item \code{saved}, indicating which of A and B is the saved snapshot version of the node.
+\item \code{mark}, indicating whether the cell is marked (only used by GC).
+\end{itemize}
+Note that the two bits are independent; all four configurations are possible.
+\end{itemize}
+
+The memory controller itself stores an additional bit of state named \code{mode} that indicates whether we are maintaining a snapshot.
+%
+We refer to the modes \code{0} and \code{1} as \emph{non-snapshot} and \emph{snapshot}, respectively.
+
+\subsection{Behavior}
+
+In non-snapshot mode (\code{mode = 0}), ordinary memory reads and writes to an address are both directed to node A/B as indicated by the address's \code{live} bit, regardless of its \code{saved} bit.
+%
+There is no snapshot, so snapshot reads are not permitted.
+
+Before we take a snapshot, we first set \code{saved = live} in the metadata for every address. %\footnote{The intuition being to bring the snapshot up to speed with the current state of memory.}
+%
+This is slow but may be done incrementally (whenever the metadata memory is idle).
+%
+Then to take the snapshot, we simply set \code{mode = 1}.
+
+When in snapshot mode, ordinary reads are directed to A/B based on \code{live}, just as before.
+%
+However, when an ordinary write occurs, \code{live} is updated to the negation of \code{saved}, and the write is directed based on this new value of \code{live}.
+%
+This ensures that the node indicated by \code{saved} is left unmodified (i.e., the snapshot is retained).
+%
+Snapshot reads are unsurprisingly directed to A/B based on the \code{saved} bit.
+
+To discard a snapshot, we simply set \code{mode = 0}.
+
+\section{Performance considerations}
+
+Every memory operation requires first reading metadata (although reads may be done by speculatively reading the entire cell, depending on how memory is set up).
+%
+In the case of a write in snapshot mode, the metadata must also be updated, although the metadata write can be carried out in parallel to the main memory write.
+%
+Caching metadata may improve performance; more aggressive schemes are also possible (e.g. user caches metadata themselves) but difficult to reason about, and should probably be added onto Cephalopode later if time permits.
+
+\section{Interface}
+
+Unless indicated otherwise, all of the operations listed should be handshaked with a reasonable protocol and have running time proportional to that of accessing memory.
+%
+They are divided into groups.
+%
+Operations within the same group may be assumed never to be invoked simultaneously (we should verify this, though).
+%
+However, it is possible for simultaneous or overlapping requests to occur \emph{between} the groups, so arbitration will be needed to handle this case, as most operations cannot safely run in parallel.
+
+%\subsection*{Group 0: extraordinary}
+%\begin{itemize}
+%\item \code{init : ()}. Initializes the metadata.
+%\end{itemize}
+
+\subsection*{Group 1: ordinary}
+\begin{itemize}
+\item \code{read : addr:ADDR -> dout:NODE}. Protocol: twophase or pulseecho. Performs an ordinary read.
+\item \code{write : (addr:ADDR, din:NODE) -> ()}. Protocol: twophase or pulseecho. Performs an ordinary write.
+%\item \code{alloc : addr:ADDRESS}.
+\end{itemize}
+
+\subsection*{Group 2: snapshot}
+\begin{itemize}
+\item \code{snap\_prepare : ()}. Protocol: pulseecho. Discards the current snapshot if one exists (i.e., sets \code{mode = 0}), and launches the slow preparation process to take a new one. May be called from either snapshot or non-snapshot mode.
+\item \code{snap\_take : ()}. Protocol: pulseecho. Takes a snapshot (sets \code{mode = 1}). May only be called when the system is in non-snapshot mode and is ready (see \code{snap\_ready}).
+\item \code{snap\_read : addr:ADDR -> dout:NODE}. Protocol: twophase or pulseecho. Performs a snapshot read. May only be called in snapshot mode.
+\end{itemize}
+
+\subsection*{Group 3: marking}
+\begin{itemize}
+\item \code{mark\_get : addr:ADDR -> bit}. Protocol: pulseecho. Reads the mark bit.
+\item \code{mark\_set : addr:ADDR -> bit -> ()}. Protocol: pulseecho. Writes the mark bit.
+\end{itemize}
+
+\subsection*{Group 4: handshake-less}
+\emph{These operations should not have handshakes.}
+\begin{itemize}
+\item \code{snap\_ready : bit}. Indicates whether or not the system is ready to take a snapshot, i.e. whether we are done setting \code{saved = live} for every address. In snapshot mode, the value should be \code{0}.
+\end{itemize}
+
+\end{document}

@@ -1,0 +1,57 @@
+cload (DIR^"types.fl");
+
+MEMORY "uRAM" [(MEM_SIZE, "addr")] "addr";
+
+let behavioral_uRAM =
+    bit_input		clk.
+    bit_input		rw.
+    addr_input		addr.
+    addr_input		inp.
+    addr_output		out.
+    //
+    bit_internal        addr_rdy rw_rdy inp_rdy rd_rdy wr_rdy.
+    uRAM_internal	uram tmp_new_uram new_uram.
+    addr_internal	local_rd_data.
+    CELL "behavioral_uRAM" [
+        is_stable uRAM_LATENCY addr addr_rdy,
+        is_stable uRAM_LATENCY rw rw_rdy,
+        is_stable uRAM_LATENCY inp inp_rdy,
+        rd_rdy <- addr_rdy '&' rw_rdy,
+        Read_uRAM uram addr local_rd_data,
+        out <- (IF (rd_rdy '&' rw) THEN local_rd_data ELSE 'X),
+        Write_uRAM uram addr inp tmp_new_uram,
+        wr_rdy <- rd_rdy '&' inp_rdy,
+        new_uram <- (IF (wr_rdy '&' '~' rw) THEN tmp_new_uram ELSE uram),
+	re_ff clk new_uram uram
+];
+
+BUNDLE "B_uRAM_write"
+        [("clkenb", "bit"), ("req", "bit"), ("addr", "addr"), ("data", "addr")] 
+        [("ack", "bit")]
+;
+BUNDLE "B_uRAM_read" 
+        [("clkenb", "bit"), ("req", "bit"), ("addr", "addr")]
+        [("ack", "bit"), ("data", "addr")]
+;
+
+
+let uRAM =
+    bit_input		clk.
+    bit_input		reset.
+    B_uRAM_read_input	S_uRAM_read.
+    B_uRAM_write_input	S_uRAM_write.
+    //
+    addr_internal	my_addr.
+    bit_internal	rw.
+    bit_internal	done_rd done_wr.
+    CELL "uRAM" [
+	rw <- '~' (S_uRAM_write-->req),
+	my_addr <- (IF (S_uRAM_read-->req) THEN (S_uRAM_read-->addr)
+					ELSE (S_uRAM_write-->addr)),
+	behavioral_uRAM clk rw my_addr (S_uRAM_write-->data) (S_uRAM_read-->data),
+	rst_phase_delay uRAM_LATENCY reset (S_uRAM_read-->req) done_rd,
+	S_uRAM_read-->ack <- done_rd '&' (S_uRAM_read-->req),
+	rst_phase_delay uRAM_LATENCY reset (S_uRAM_write-->req) done_wr,
+	S_uRAM_write-->ack <- S_uRAM_write-->req
+];
+create_default_version uRAM;

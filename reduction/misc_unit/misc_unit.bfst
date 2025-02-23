@@ -1,0 +1,45 @@
+#include "misc.binc"
+
+// Actions
+//
+action mem_unit:MemUnit provided by external via mem_proto;
+
+// Macros
+define ZERO	 = (fl "{'0::Aint}");
+define ONE	 = (fl "{'1::Aint}");
+define MINUS_ONE = (fl "{'-1::Aint}");
+define MSB	 = (fl "\\z. hd (tobits z)");
+
+
+module misc_unit;
+protocol std_proto;
+
+function main : op:Primitive -> arg1:Addr -> arg2:Addr -> res:Node
+{
+    var Node	    v1, v2;
+
+    v1 = do_mem_read arg1;
+    while( v1-->ntype == G_INDIR ) {
+	v1 = do_mem_read (v1-->left);
+    }
+    if( op == P_NOT ) {
+        res-->ntype = G_INT;
+        res-->int = (if (v1-->int == ZERO) then ONE else ZERO);
+        return;
+    } 
+    v2 = do_mem_read arg2;
+    while( v2-->ntype == G_INDIR ) {
+	v2 = do_mem_read (v2-->left);
+    }
+    if( op == P_AND ) {
+        res-->ntype = G_INT;
+        res-->int = (if (~(v1-->int == ZERO) & ~(v2-->int == ZERO)) then ONE else ZERO);
+        return;
+    } else if( op == P_OR ) {
+        res-->ntype = G_INT;
+        res-->int = (if (~(v1-->int == ZERO) | ~(v2-->int == ZERO)) then ONE else ZERO);
+        return;
+    }
+    return;
+}
+

@@ -1,0 +1,217 @@
+set_font font_larger;
+cload (DIR^"../types.fl");
+
+
+let STACK_SIZE = 8;
+let STACK_ADDR_SZ = bits_needed (STACK_SIZE-1);
+TYPE "stack_addr" STACK_ADDR_SZ;
+TYPE "estack_addr" (STACK_ADDR_SZ+1);
+
+let estack2stack {a::estack_addr} = 
+    let res = frombits (tl (tobits a)) in
+    {res :: stack_addr}
+;
+
+let int2eaddr {i::Int} = 
+    let res = frombits (lastn (STACK_ADDR_SZ+1) (tobits i)) in
+    {res :: estack_addr}
+;
+
+BUNDLE "B_stack_push"
+        [("clkenb", "bit"), ("req", "bit"), ("addr", "addr")]
+        [("ack", "bit")]
+;
+
+BUNDLE "B_stack_get_args"
+        [("clkenb", "bit"), ("req", "bit"), ("cnt", "Int")]
+        [("ack", "bit"),
+	 ("a1", "addr"),
+	 ("a2", "addr"),
+	 ("a3", "addr"),
+	 ("a4", "addr"),
+	 ("a5", "addr"),
+	 ("a6", "addr")
+	]
+;
+
+BUNDLE "B_uRAM_read"
+        [("clkenb", "bit"), ("req", "bit"), ("addr", "addr")]
+        [("ack", "bit"), ("data", "addr")]
+;
+
+let stack_slice {i::int} =
+    bit_input		clk.
+    bit_input		wr.
+    stack_addr_input	addr.
+    addr_input		inp.
+    addr_output		out.
+    //
+    bit_internal	eclk write.
+    CELL (sprintf "stack_slice<%d>" i) [
+	write <- wr '&' (addr '=' ''i),
+	clockgate clk write eclk,
+	re_ff eclk inp out
+];
+
+letrec readn =
+    addr_list_input	inps.
+    bit_list_input	addrs.
+    addr_list_output	outs.
+    //
+    let m = length inps in
+    let n = length outs in
+    let N = addrs = [] => 0 | 2**(length addrs-1) in
+    addr_list_internal (N+n)	mids.
+    CELL "readn" (
+	addrs = [] => (
+		(map2 (\i.\o. o <- i) inps (firstn m outs))@
+		(map2 (\i.\o. o <- i) (firstn (n-m) inps) (butfirstn m outs))
+	) | (
+	    (map3 (\sh.\pt.\out. MUX (hd addrs) sh pt out)
+				(butfirstn N mids) (firstn n mids) outs)
+	    @ [ readn inps (tl addrs) mids ]
+	)
+);
+
+let stack =
+    bit_input               clk.
+    bit_input               reset.
+    B_stack_push_input	    S_stack_push.
+    B_stack_get_args_input  S_stack_get_args.
+    B_uRAM_read_output	    S_uRAM_read.
+    //
+    addr_list_internal STACK_SIZE   stack_elements.
+    estack_addr_internal	    head tail cur_cnt req_cnt top_of_stack.
+    estack_addr_internal	    tail_plus1.
+    addr_list_internal 6	    args.
+    bit_internal		    ready full s_write read_up_ptr.
+    addr_internal		    up_addr.
+    addr_internal		    old_up_ptr.
+    stack_addr_internal		    s_wr_addr.
+    //
+    CELL "stack" (
+	(map2 (\i.\st.  stack_slice i clk s_write s_wr_addr old_up_ptr st)
+	     (0 upto (STACK_SIZE-1)) stack_elements)
+    @ [
+	STATE clk head [
+	    (reset,				    '0),
+	    (S_stack_push-->req,		    head '-' '1),
+	    (S_stack_get_args-->req '&' ready,	    head '+' req_cnt)
+	],
+	STATE clk tail [
+	    (reset,				     '0),
+	    (S_stack_push-->req '&' full,	     tail '-' '1),
+	    (read_up_ptr '&' S_uRAM_read-->ack,	     tail_plus1)
+	],
+	tail_plus1 <- tail '+' '1,
+	cur_cnt <- tail '-' head,
+	req_cnt <- int2eaddr (S_stack_get_args-->cnt),
+	ready <- cur_cnt '>=' req_cnt,
+	full  <- cur_cnt '=' ''STACK_SIZE,
+	top_of_stack <- head '+' '1,
+	read_up_ptr <- '~' ready '&' S_stack_get_args-->req,
+	//
+	S_uRAM_read-->req <- read_up_ptr,
+	SELECT_list stack_elements tail up_addr,
+	S_uRAM_read-->addr <- up_addr,
+	//
+	old_up_ptr <- (IF (read_up_ptr '&' S_uRAM_read-->ack)
+			THEN S_uRAM_read-->data ELSE S_stack_push-->addr),
+	s_write <- (IF read_up_ptr
+			THEN S_uRAM_read-->ack ELSE S_stack_push-->req),
+	s_wr_addr <- estack2stack (IF read_up_ptr THEN tail_plus1 ELSE head),
+	//
+	readn stack_elements (tl (tobits top_of_stack)) args,
+	S_stack_get_args-->a1 <-
+	    (IF (req_cnt '>=' '1) THEN (el 1 args) ELSE 'X),
+	S_stack_get_args-->a2 <-
+	    (IF (req_cnt '>=' '2) THEN (el 2 args) ELSE 'X),
+	S_stack_get_args-->a3 <-
+	    (IF (req_cnt '>=' '3) THEN (el 3 args) ELSE 'X),
+	S_stack_get_args-->a4 <-
+	    (IF (req_cnt '>=' '4) THEN (el 4 args) ELSE 'X),
+	S_stack_get_args-->a5 <-
+	    (IF (req_cnt '>=' '5) THEN (el 5 args) ELSE 'X),
+	S_stack_get_args-->a6 <-
+	    (IF (req_cnt '>=' '6) THEN (el 6 args) ELSE 'X),
+	//
+	S_stack_get_args-->ack <- S_stack_get_args-->req '&' ready,
+	S_stack_push-->ack <- S_stack_push-->req
+    ]
+);
+
+create_default_version stack;
+
+
+//let vis = STE_debug (pexlif2fsm stack);
+//vis;
+//
+//
+//let N = 100;
+//
+//let ant =
+//    "clk" is_clock N 
+//  and
+//    "reset" is 1 for 1 cycle otherwise 0 until N cycles
+//  and
+//    "S_stack_push'req" is 1 in_cycle 2
+//	      followed_by 1 in_cycle 4
+//	      followed_by 1 in_cycle 6
+//	      followed_by 1 in_cycle 8
+//	      followed_by 1 in_cycle 10
+//	      followed_by 1 in_cycle 12
+//	      followed_by 1 in_cycle 14
+//	      followed_by 1 in_cycle 16
+//	      followed_by 1 in_cycle 18
+//	      otherwise   0 until N cycles
+//  and
+//    "S_stack_push'addr[7:0]" is 1 in_cycle 2
+//		   followed_by 2 in_cycle 4
+//		   followed_by 3 in_cycle 6
+//		   followed_by 4 in_cycle 8
+//		   followed_by 5 in_cycle 10
+//		   followed_by 6 in_cycle 12
+//		   followed_by 7 in_cycle 14
+//		   followed_by 8 in_cycle 16
+//		   followed_by 9 in_cycle 18
+//  and
+//    "S_stack_get_args'req" is 1 in_cycle 30
+//		  followed_by 1 in_cycle 40
+//		  followed_by 1 in_cycle 60
+//		  followed_by 1 in_cycle 80
+//		  followed_by 1 in_cycle 81
+//		  followed_by 1 in_cycle 82
+//		  followed_by 1 in_cycle 83
+//		  followed_by 1 in_cycle 84
+//		  followed_by 1 in_cycle 85
+//		  followed_by 1 in_cycle 86
+//		  followed_by 1 in_cycle 87
+//		  followed_by 1 in_cycle 88
+//		  followed_by 1 in_cycle 89
+//		  followed_by 1 in_cycle 90
+//		  followed_by 1 in_cycle 91
+//		  otherwise   0 until N cycles
+//  and
+//    "S_stack_get_args'cnt[15:0]" is 2 in_cycle 30
+//			  followed_by 1 in_cycle 40
+//			  followed_by 3 in_cycle 60
+//			  followed_by 3 in_cycle 80
+//			  followed_by 3 in_cycle 81
+//			  followed_by 3 in_cycle 82
+//			  followed_by 3 in_cycle 83
+//			  followed_by 3 in_cycle 84
+//			  followed_by 3 in_cycle 85
+//			  followed_by 3 in_cycle 86
+//			  followed_by 3 in_cycle 87
+//			  followed_by 3 in_cycle 88
+//			  followed_by 3 in_cycle 89
+//			  followed_by 3 in_cycle 90
+//			  followed_by 3 in_cycle 91
+//  and
+//    "S_uRAM_read'ack" is 1 in_cycle 90 otherwise 0 until N cycles
+//  and
+//    "S_uRAM_read'data[7:0]" is 1 in_cycle 90
+//;
+//
+//let ste = STE "-e" vis [] ant [] [];
+//ste;

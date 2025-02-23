@@ -1,0 +1,142 @@
+cload (DIR^"combinator_list.fl");
+cload (DIR^"reduction_types.fl");
+
+let get_comb_arity op =
+    itlist (\(o,ar,al).\e. IF (op '=' o) THEN ''ar ELSE e) combinator_list '0
+;
+
+let get_comb_allocs op =
+    itlist (\(o,ar,al,p).\e. IF (op '=' o) THEN ''al ELSE e)
+           combinator_list {'0::alloc_cnt}
+;
+
+
+begin_abstype;
+
+let get_comb_alloc_count =
+    combinator_input	a'get_comb_alloc_count'i'comb.
+    alloc_cnt_output	a'get_comb_alloc_count'o'cnt.
+    CELL "get_comb_alloc_count" [
+	let mk_cond (c,args,alloc_cnt,code) =
+		((a'get_comb_alloc_count'i'comb '=' c), ''alloc_cnt)
+	in
+	CASE a'get_comb_alloc_count'o'cnt (map mk_cond combinator_list) '0
+];
+
+let get_comb_arity =
+    combinator_input	a'get_comb_arity'i'comb.
+    arity_output	a'get_comb_arity'o'cnt.
+    CELL "get_comb_arity:" [
+	let mk_cond (c,args,alloc_cnt,code) =
+	    ((a'get_comb_arity'i'comb '=' c), ''args)
+	in
+	CASE a'get_comb_arity'o'cnt (map mk_cond combinator_list) '0
+];
+
+let combinator_exe =
+    combinator_input	op.
+    addr_input		redex_addr.
+    addr_list_input	arg_addrs.
+    addr_list_input	alloc_addrs.
+    node_list_output	alloc_results.
+    node_output		redex_result.
+    CELL "combinator_exe" (
+	let assignments =
+	    flatmap (\(c,_,_,l). map (\e. c,e) l) combinator_list
+	in
+	let common_asignments = partition (\(c,l,r). l) assignments in
+	let mk1 as =
+	    val (_,lhs,_) = el 1 as in
+	    let rules = map (\(comb,lhs,rhs). (op '=' comb) --- rhs) as in
+	    CASE lhs rules '0
+	in
+	map mk1 common_asignments
+);
+
+let combinator_unit =
+    bit_input		clk reset.
+    // get_comb_alloc_count
+    combinator_input    a'get_comb_alloc_count'i'comb.
+    alloc_cnt_output    a'get_comb_alloc_count'o'cnt.
+    // get_comb_arity
+    combinator_input    a'get_comb_arity'i'comb.
+    arity_output        a'get_comb_arity'o'cnt.
+    // set_comb
+    bit_input		a'set_comb'req.
+    bit_output		a'set_comb'ack.
+    combinator_input	a'set_comb'i'comb.
+    // set_alloc
+    bit_input		a'set_alloc'req.
+    bit_output		a'set_alloc'ack.
+    alloc_cnt_input	a'set_alloc'i'idx.
+    addr_input		a'set_alloc'i'addr.
+    // run_comb
+    bit_input		a'run_comb'req.
+    bit_output		a'run_comb'ack.
+    addr_input		a'run_comb'i'redex_addr.
+    node_output		a'run_comb'o'res.
+    // get_alloc
+    bit_input		a'get_alloc'req.
+    bit_output		a'get_alloc'ack.
+    alloc_cnt_input	a'get_alloc'i'idx.
+    addr_output		a'get_alloc'o'addr.
+    // get_comb_alloc_content
+    bit_input		a'get_comb_alloc_content'req.
+    bit_output		a'get_comb_alloc_content'ack.
+    alloc_cnt_input	a'get_comb_alloc_content'i'idx.
+    node_output		a'get_comb_alloc_content'o'res.
+    // Interface to arg_unit
+    addr_list_input	arg_addrs.
+    //
+    // ------------------------------------------------------
+    // Internal
+    //
+    combinator_internal		    cur_combinator.
+    //
+    addr_list_internal	MAX_ALLOC   alloc_addrs.
+    bit_list_internal	MAX_ALLOC   alloc_addrs_en.
+    //
+    node_list_internal	MAX_ALLOC   res_allocs.
+    node_list_internal	MAX_ALLOC   allocs.
+    CELL "combinator_unit" (
+	(map2 (\e.\o. re_ff_en clk e a'set_alloc'i'addr o)
+	      alloc_addrs_en alloc_addrs) @
+	(map2 (\i.\o. re_ff_en clk a'run_comb'req i o) allocs res_allocs) @
+	[
+	  // get_comb_alloc_count
+	  get_comb_alloc_count a'get_comb_alloc_count'i'comb
+			       a'get_comb_alloc_count'o'cnt
+	  // get_comb_arity
+	, get_comb_arity a'get_comb_arity'i'comb a'get_comb_arity'o'cnt
+	  // set_comb
+	,  re_ff_en clk a'set_comb'req a'set_comb'i'comb cur_combinator
+	, a'set_comb'ack <- a'set_comb'req
+	  // set_alloc
+	, EN_DECODER_list a'set_alloc'req a'set_alloc'i'idx alloc_addrs_en
+	, a'set_alloc'ack <- a'set_alloc'req
+	  // run_comb
+	, combinator_exe cur_combinator a'run_comb'i'redex_addr
+			 arg_addrs alloc_addrs allocs a'run_comb'o'res
+	, a'run_comb'ack <- a'run_comb'req
+	  // get_alloc
+	, CASE a'get_alloc'o'addr
+	    (map2 (\i.\a. (''i '=' a'get_alloc'i'idx), a)
+		    ((MAX_ALLOC-1) downto 0) alloc_addrs) 'X
+	, a'get_alloc'ack <- a'get_alloc'req
+	  // get_comb_alloc_content
+	, CASE a'get_comb_alloc_content'o'res
+	    (map2 (\i.\a. (''i '=' a'get_comb_alloc_content'i'idx), a)
+		  ((MAX_ALLOC-1) downto 0) res_allocs) 'X 
+	, a'get_comb_alloc_content'ack <- a'get_comb_alloc_content'req
+	]
+);
+
+end_abstype combinator_unit;
+
+#ifdef SIMULATION
+
+let p = flfun2pexlif combinator_unit;
+
+STE_debug (pexlif2fsm p);
+
+#endif

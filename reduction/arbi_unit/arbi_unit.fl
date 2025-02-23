@@ -1,0 +1,23 @@
+cload "../../types.fl";
+cload "../reduction_types.fl";
+
+let load_files = map (\f. DIR^f) [
+	"../../types.fl",
+	"../reduction_types.fl",
+	"arb_rf.bfl",
+	"adder.bfl",
+	"hmul.bfl",
+	"arbi2int.bfl",
+	"int2arbi.bfl",
+	"arbi_trim.bfl",
+	"arbi_scheduler.bfl"
+];
+
+
+mk_interconnect_fub "arbi_unit" load_files T
+	["arb_rf", "arbi2int", "int2arbi", "arbi_trim", "arbi_scheduler",
+	 "adder", "hmul"]
+	T
+;
+
+quit;

@@ -1,0 +1,42 @@
+cload (DIR^"../types.fl");
+
+BUNDLE "B_gc_cnt_init"
+        [("clkenb", "bit"), ("req", "bit"), ("addr", "addr")]
+        [("ack", "bit")]
+;
+
+BUNDLE "B_gc_cnt_inc"
+        [("clkenb", "bit"), ("req", "bit")]
+        [("ack", "bit")]
+;
+
+BUNDLE "B_gc_cnt_dec"
+        [("clkenb", "bit"), ("req", "bit")]
+        [("ack", "bit")]
+;
+
+BUNDLE "B_gc_cnt_value" [] [("addr", "addr")];
+
+let gc_cnt =
+    bit_input               clk.
+    bit_input               reset.
+    B_gc_cnt_init_input	    S_gc_cnt_init.
+    B_gc_cnt_inc_input	    S_gc_cnt_inc.
+    B_gc_cnt_dec_input	    S_gc_cnt_dec.
+    B_gc_cnt_value_input    S_gc_cnt_value.
+    //
+    addr_internal	    v.
+    CELL "gc_cnt" [
+	STATE clk v [
+	    (reset, '0),
+	    (S_gc_cnt_init-->req, S_gc_cnt_init-->addr),
+	    (((S_gc_cnt_inc-->req) '&' '~' (S_gc_cnt_dec-->req)), v '+' '1),
+	    (((S_gc_cnt_dec-->req) '&' '~' (S_gc_cnt_inc-->req)), v '-' '1)
+	],
+	S_gc_cnt_value-->addr <- v,
+	S_gc_cnt_init-->ack <- S_gc_cnt_init-->req,
+	S_gc_cnt_inc-->ack <- S_gc_cnt_inc-->req,
+	S_gc_cnt_dec-->ack <- S_gc_cnt_dec-->req
+];
+
+create_default_version gc_cnt;

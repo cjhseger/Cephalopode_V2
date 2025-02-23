@@ -1,0 +1,21 @@
+#include "primitives.binc"
+
+// Actions
+action mem_read:MemRead provided by external via proto_mem;
+
+module eq_unit;
+protocol std_proto;
+
+function main : arg1:Addr -> arg2:Addr -> res:Node
+{
+    var Node	    v1, v2;
+    v1 = do mem_read arg1;
+    v2 = do mem_read arg2;
+    res-->ntype = G_INT;
+    if( v1-->int == v2-->int ) {
+	res-->int = 1;
+    } else {
+	res-->int = 0;
+    }
+    return;
+}

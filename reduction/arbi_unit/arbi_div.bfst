@@ -1,0 +1,42 @@
+#include "primitives.binc"
+
+// Actions
+action arb_rf_length:ArbRfLength provided by external via std_proto;
+action arb_rf_new:ArbRfNew provided by external via std_proto;
+action arb_rf_alloc:ArbRfAlloc provided by external via std_proto;
+action arb_rf_get:ArbRfGet[2] provided by external via std_proto;
+action arb_rf_set:ArbRfSet provided by external via std_proto;
+action arb_rf_pop:ArbRfPop provided by external via std_proto;
+action arb_rf_free:ArbRfFree provided by external via std_proto;
+//
+action int2arbi:Int2Arbi provided by external via std_proto;
+action arbi2int:Arbi2Int provided by external via std_proto;
+action arbi_trim:ArbiTrim provided by external via std_proto;
+
+action adder:
+            (arg1:Aint -> arg2:Aint -> cin:bit -> res:Aint
+                reading [] writing [])
+            provided by external via comb_proto
+;
+
+// Macros
+define ZERO      = ((fl "{'0::Aint}") :: Aint);
+define ONE       = ((fl "{'1::Aint}") :: Aint);
+define MINUS_ONE = ((fl "{'-1::Aint}") :: Aint);
+define MSB       = ((fl "\\z. hd (tobits z)") :: Aint -> bit);
+define Upper     = ((fl "\\z. Upper z") :: Aint -> HAint);
+define Lower     = ((fl "\\z. Lower z") :: Aint -> HAint);
+define ExtUpper  = ((fl "\\z. ZX (Upper z)") :: Aint -> Aint);
+define ExtLower  = ((fl "\\z. ZX (Lower z)") :: Aint -> Aint);
+define Merge     = ((fl "\\h.\\l. Merge h l") :: Aint -> Aint -> Aint);
+
+module arbi_div;
+protocol std_proto;
+
+function main : op:Primitive ->
+		    n:index -> ln:alen ->
+		    d:index -> ld:alen ->
+		    res:Node
+{
+
+

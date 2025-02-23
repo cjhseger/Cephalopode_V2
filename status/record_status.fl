@@ -1,0 +1,23 @@
+cload (DIR^"../types.fl");
+
+BUNDLE "B_record_status"
+        [("clkenb", "bit"), ("req", "bit"), ("status", "Int")]
+        [("ack", "bit")]
+;
+
+let record_status =
+    bit_input               clk.
+    bit_input               reset.
+    B_record_status_input   S_record_status.
+    //
+    Int_internal	    stored_status.
+    //
+    CELL "record_status" [
+	STATE clk stored_status [
+	    (reset,		'0),
+	    (S_record_status-->req,	S_record_status-->status)
+	],
+	S_record_status-->ack <- S_record_status-->req
+];
+
+create_default_version record_status;

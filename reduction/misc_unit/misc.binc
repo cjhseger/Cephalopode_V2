@@ -1,0 +1,6 @@
+#include "../../cephalopode_types.binc"
+#include "../reduction_types.binc"
+
+type index => "index";
+type alen  => "alen";
+

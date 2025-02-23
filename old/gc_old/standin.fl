@@ -1,0 +1,50 @@
+cload (DIR^"../types.fl");
+
+// stand-in with correct type but no logic
+let gc =
+    bit_input clk.
+    bit_input reset.
+    // run the gc forever (see gc_ctrl.bfst for protocol)
+    bit_input req.
+    bit_output ack.
+    // to memory unit
+    bit_output a'mem_read'req.
+    bit_input a'mem_read'ack.
+    addr_output a'mem_read'i'p.
+    node_input a'mem_read'o'dout.
+    bit_output a'mem_write'req.
+    bit_input a'mem_write'ack.
+    addr_output a'mem_write'i'p.
+    node_output a'mem_write'i'din.
+    bit_output a'snap_prepare'req.
+    bit_input a'snap_prepare'ack.
+    bit_output a'snap_take'req.
+    bit_input a'snap_take'ack.
+    bit_output a'snap_read'req.
+    bit_input a'snap_read'ack.
+    addr_output a'snap_read'i'p.
+    node_input a'snap_read'o'dout.
+    bit_input a'snap_ready'o'ready.
+    bit_output a'mark_get'req.
+    bit_input a'mark_get'ack.
+    addr_output a'mark_get'i'p.
+    bit_input a'mark_get'o'm.
+    bit_output a'mark_set'req.
+    bit_input a'mark_set'ack.
+    addr_output a'mark_set'i'p.
+    bit_output a'mark_set'i'm.
+    // to freelist unit
+    bit_output a'freelist_checkout'req.
+    bit_input a'freelist_checkout'ack.
+    addr_input a'freelist_checkout'o'free.
+    bit_output a'freelist_checkin'req.
+    bit_input a'freelist_checkin'ack.
+    addr_output a'freelist_checkin'i'free.
+    // to manager unit
+    bit_output a'freeze_graph'req.
+    bit_input a'freeze_graph'ack.
+    bit_output a'unfreeze_graph'req.
+    bit_input a'unfreeze_graph'ack.
+    //
+    CELL "gc" [
+    ];

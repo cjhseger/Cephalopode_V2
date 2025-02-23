@@ -1,0 +1,63 @@
+#include "memory.binc"
+
+// Local
+action mRAM_write:mRAMWrite provided by external via mRAM_proto;
+action mRAM_read:mRAMRead provided by external via mRAM_proto;
+
+action get_mcache:mCacheGet provided by external via mcache_get_proto;
+action set_mcache:mCacheSet provided by external via mcache_set_proto;
+
+// Useful macros (fl functions)
+define get_maddr	= fl "\\a. get_maddr a";
+define get_baddr	= fl "\\a. get_baddr a";
+define extract_mark_bit	= fl "\\mw. \\baddr. extract_mark_bit mw baddr";
+define mark_replace	= fl "\\mw. \\baddr. \\new. mark_replace mw baddr new";
+
+define maZERO		= fl "{'0:: maddr}" :: mAddr;
+define mZERO		= fl "{'0:: mark_word}" :: mWord;
+
+module mark;
+protocol std_proto;
+
+function main : op:Mark_op -> addr:Addr ->m_in:bit -> res:bit
+{
+    var mAddr	mi;
+    var bit	mcache_valid;
+    var mAddr	mcache_addr;
+    var mWord	mcache_line;
+    var mAddr	maddr;
+    var bAddr	baddr;
+
+    if( op == MARK_INIT ) {
+	do set_mcache (0,0,0);
+	foreach( mi in 0 ... MRAM_SIZE1 ) {
+	    do mRAM_write mi mZERO;
+	}
+    } else
+    if( op == MARK_GET ) {
+	(mcache_valid,mcache_addr,mcache_line) = do get_mcache;
+	maddr = get_maddr addr;
+	baddr = get_baddr addr;
+	if( ~mcache_valid | (maddr != mcache_addr) ) {
+	    mcache_line = do mRAM_read maddr;
+	    mcache_addr = maddr;
+	    mcache_valid = 1;
+	    do set_mcache (mcache_valid,mcache_addr,mcache_line);
+	}
+	res = extract_mark_bit mcache_line baddr;
+    } else
+    if( op == MARK_SET ) {
+	(mcache_valid,mcache_addr,mcache_line) = do get_mcache;
+	maddr = get_maddr addr;
+	baddr = get_baddr addr;
+	if( ~mcache_valid | (maddr != mcache_addr) ) {
+	    mcache_line = do mRAM_read maddr;
+	    mcache_addr = maddr;
+	    mcache_valid = 1;
+	}
+	mcache_line = mark_replace mcache_line baddr m_in;
+	do set_mcache (mcache_valid,mcache_addr,mcache_line);
+	do mRAM_write maddr mcache_line;
+    }
+    return;
+}

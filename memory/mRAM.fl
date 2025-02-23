@@ -1,0 +1,57 @@
+cload (DIR^"types.fl");
+
+MEMORY "mRAM" [(MRAM_SIZE, "maddr")] "mark_word";
+
+let behavioral_mRAM =
+    bit_input		clk.
+    bit_input		rw.
+    maddr_input     addr.
+    mark_word_input	inp.
+    mark_word_output	out.
+    //
+    bit_internal        addr_rdy rw_rdy inp_rdy rd_rdy wr_rdy.
+    mRAM_internal	mram tmp_new_mram new_mram.
+    mark_word_internal  local_rd_data.
+    CELL "behavioral_mRAM" [
+        is_stable mRAM_LATENCY addr addr_rdy,
+        is_stable mRAM_LATENCY rw rw_rdy,
+        is_stable mRAM_LATENCY inp inp_rdy,
+        rd_rdy <- addr_rdy '&' rw_rdy,
+        Read_mRAM mram addr local_rd_data,
+        out <- (IF (rd_rdy '&' rw) THEN local_rd_data ELSE 'X),
+        Write_mRAM mram addr inp tmp_new_mram,
+        wr_rdy <- rd_rdy '&' inp_rdy,
+        new_mram <- (IF (wr_rdy '&' '~' rw) THEN tmp_new_mram ELSE mram),
+	re_ff clk new_mram mram
+];
+
+BUNDLE "B_mRAM_write"
+        [("clkenb", "bit"), ("req", "bit"), ("addr", "maddr"), ("data", "mark_word")] 
+        [("ack", "bit")]
+;
+BUNDLE "B_mRAM_read" 
+        [("clkenb", "bit"), ("req", "bit"), ("addr", "maddr")]
+        [("ack", "bit"), ("data", "mark_word")]
+;
+
+
+let mRAM =
+    bit_input		clk.
+    bit_input		reset.
+    B_mRAM_read_input	S_mRAM_read.
+    B_mRAM_write_input	S_mRAM_write.
+    //
+    maddr_internal	my_addr.
+    bit_internal	rw.
+    bit_internal	done_rd done_wr.
+    CELL "mRAM" [
+	rw <- '~' (S_mRAM_write-->req),
+	my_addr <- (IF (S_mRAM_read-->req) THEN (S_mRAM_read-->addr)
+					ELSE (S_mRAM_write-->addr)),
+	behavioral_mRAM clk rw my_addr (S_mRAM_write-->data) (S_mRAM_read-->data),
+	rst_phase_delay mRAM_LATENCY reset (S_mRAM_read-->req) done_rd,
+	S_mRAM_read-->ack <- done_rd '&' (S_mRAM_read-->req),
+	rst_phase_delay mRAM_LATENCY reset (S_mRAM_write-->req) done_wr,
+	S_mRAM_write-->ack <- S_mRAM_write-->req
+];
+create_default_version mRAM;

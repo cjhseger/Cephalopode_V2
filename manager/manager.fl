@@ -1,0 +1,61 @@
+cload (DIR^"../types.fl");
+cload (DIR^"manager.fsm.fl");
+
+BUNDLE "B_manager"
+        [("clkenb", "bit"), ("req", "bit")]
+        [("ack", "bit")]
+;
+
+BUNDLE "B_pause"
+        []
+        [("p", "bit")]
+;
+
+BUNDLE "B_unfreeze_graph"
+        [("clkenb", "bit"), ("req", "bit")]
+        [("ack", "bit")]
+;
+
+BUNDLE "B_freeze_graph"
+        [("clkenb", "bit"), ("req", "bit")]
+        [("ack", "bit")]
+;
+
+
+BUNDLE "B_reduction_unit"
+        [("clkenb", "bit"), ("req", "bit"), ("gp_in", "graphptr")]
+        [("ack", "bit"), ("gp_out", "graphptr")]
+;
+
+let manager =
+    bit_input		    clk.
+    bit_input		    reset.
+    B_manager_input	    S_manager.
+    B_pause_input	    S_pause.
+    B_freeze_graph_input    S_freeze_graph.
+    B_unfreeze_graph_input  S_unfreeze_graph.
+    B_reduction_unit_output S_reduction_unit.
+    // Internal
+    bit_internal	    load_gp.
+    bit_internal	    store_gp.
+    CELL "manager" [
+        managerFSM clk reset
+		   (S_manager-->req)
+		   (S_freeze_graph-->req)
+		   (S_unfreeze_graph-->req)
+		   (S_reduction_unit-->ack)
+		   (S_manager-->ack)
+		   (S_freeze_graph-->ack)
+		   (S_unfreeze_graph-->ack)
+		   (S_reduction_unit-->req)
+		   (S_pause-->p)
+		   load_gp
+		   store_gp
+	,
+        re_ff_en clk (reset '|' store_gp)
+		     (IF reset THEN (make_graphptr graph_root addr_null)
+			       ELSE (S_reduction_unit-->gp_out))
+		    (S_reduction_unit-->gp_in)
+];
+create_default_version manager;
+

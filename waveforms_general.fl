@@ -1,0 +1,16 @@
+add_waveform vis ["clk"];
+add_waveform vis ["S_mem_unit'req"];
+add_waveform vis ["S_mem_unit'op[2:0]"];
+add_waveform vis (find_vector ckt "S_mem_unit'addr*");
+add_waveform vis ["S_mem_unit'din"^nVEC];
+add_waveform vis ["S_mem_unit'dout"^nVEC];
+add_waveform vis ["S_mem_unit'ack"];
+add_waveform vis ["i9/S_comb_unit'req"];
+add_waveform vis ["i9/S_comb_unit'n"^nVEC];
+add_waveform vis ["i9/S_comb_unit'ack"];
+add_waveform vis ["i9/S_prim_unit'req"];
+add_waveform vis ["i9/S_prim_unit'n"^nVEC];
+add_waveform vis ["i9/S_prim_unit'ack"];
+let tab_1 = draw_fanin vis (0) 100 ["S_cephalopode'ack"];
+tab_1;
+

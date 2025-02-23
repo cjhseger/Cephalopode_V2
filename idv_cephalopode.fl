@@ -1,0 +1,7 @@
+set_font font_larger;
+cload "load_cephalopode.fl";
+
+let p = cephalopode;
+
+
+IDV p "DB_ceph" [];

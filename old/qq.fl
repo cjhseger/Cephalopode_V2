@@ -1,0 +1,140 @@
+cload "cephalopode.fl";
+
+//pcompile cephalopode;
+
+//let p = flfun2pexlif cephalopode;
+//wtime (p fseq 1);
+
+
+begin_asbtype;
+
+let make_top_bundle fn =
+    let ret_type = get_return_type fn in
+    ret_type != "pexlif" =>
+	eprintf "Function '%s' not returning a pexlif (%s)" fn ret_type
+    |
+    let args = get_args fn in
+    (el 1 args) != ("clk", "bit") =>
+	eprintf "First argument is not 'clk' of type 'bit'"
+    |
+    (el 2 args) != ("reset", "bit") =>
+	eprintf "Second argument is not 'reset' of type 'bit'"
+    |
+    (el 3 args) != ("req", "bit") =>
+	eprintf "Third argument is not 'req' of type 'bit'"
+    |
+    (el 4 args) != ("ack", "bit") =>
+	eprintf "Fourth argument is not 'ack' of type 'bit'"
+    |
+    let idx = find_first0 (\(nm,_). str_is_prefix "a'" nm) args in
+    let my_signals = gather args (5 upto (idx = 0 => length args | idx-1)) in
+    val (inps,outs) = split (\(nm,_).str_is_prefix "i'" nm) my_signals in
+    let pr_pair (nm,tp) =
+	sprintf "(\"%s\", \"%s\")" (string_butfirstn 2 nm) tp
+    in
+    let left = list2str T "\n\t[" ", " "]" pr_pair (("..req", "bit"):inps) in
+    let right = list2str T "\n\t[" ", " "]" pr_pair (("..ack", "bit"):outs) in
+    sprintf "BUNDLE \"%s\" %s %s\n;\n" fn left right
+;
+
+let is_digit c =
+    let o = ord c in
+    ord "0" <= o AND o <= ord "9"
+;
+
+let split_name_number nm =
+    let rs = rev (explode nm) in
+    let idx = find_first0 (\c. NOT (is_digit c)) rs in
+    idx <= 1 =>  (nm,[]) |
+    let nm = implode (rev (butfirstn (idx-1) rs)) in
+    let dig = sscanf "%d" (implode (rev (firstn (idx-1) rs))) in
+    (nm,[dig])
+;
+
+
+let split_bifrost_name (nm,tp) =
+    let l = str_split nm "'" in
+    hd l != "a" => eprintf "Bifrost name not starting with a' (%s)" nm |
+    let name = el 2 l in
+    val (bname,idxs) = split_name_number name in
+    let field = last l in
+    let direction =
+	length l = 3 =>
+	    field = "req" => "input" |
+	    field = "ack" => "output" |
+	    eprintf "Expected req or ack but got '%s'" field
+	|
+	let dir = el 3 l in
+	dir = "i" => "input" |
+	dir = "o" => "output" |
+	eprintf "Expected i or o but got '%s'" dir
+    in
+    (name, bname, direction, field)
+;
+
+let make_bundle_version fn =
+    (NOT (bundle_exists fn) => eval_fl_code [make_top_bundle fn]  | T) fseq
+    let ret_type = get_return_type fn in
+    ret_type != "pexlif" =>
+	eprintf "Function '%s' not returning a pexlif (%s)" fn ret_type
+    |
+    let args = get_args fn in
+    (el 1 args) != ("clk", "bit") =>
+	eprintf "First argument is not 'clk' of type 'bit'"
+    |
+    (el 2 args) != ("reset", "bit") =>
+	eprintf "Second argument is not 'reset' of type 'bit'"
+    |
+    (el 3 args) != ("req", "bit") =>
+	eprintf "Third argument is not 'req' of type 'bit'"
+    |
+    (el 4 args) != ("ack", "bit") =>
+	eprintf "Fourth argument is not 'ack' of type 'bit'"
+    |
+    let mk_arg direction (nm,tp) = sprintf "\t%s_%s\t%s.\n" tp direction nm in
+    let bundle_args = ref (map (mk_arg "input") (firstn 2 args)) then
+    let call_args = ref (map fst (firstn 2 args)) then
+    let idx = find_first0 (\(nm,_). str_is_prefix "a'" nm) args in
+    let my_signals = gather args (3 upto (idx = 0 => length args | idx-1)) in
+    let rem_signals = idx = 0 => [] | butfirstn (idx-1) args in
+    let new_call_args =
+	    let get_field nm = last (str_split nm "'") in
+	    map (\(nm,tp). sprintf "%s-->%s" fn (get_field nm)) my_signals
+    then
+    let new_bundle_arg = sprintf "\t%s_input\t%s.\n" fn fn then
+    (bundle_args := (deref bundle_args)@[new_bundle_arg]) fseq
+    (call_args := ((deref call_args)@new_call_args)) fseq
+    //
+    let snms = map split_bifrost_name rem_signals then
+    let mk l =
+	val (name,bname,dir,field) = hd l in
+	NOT (bundle_exists bname) => eprintf "Bundle '%s' not declared" bname |
+	let new_bundle_arg = sprintf "\t%s_output\t%s.\n" bname name in
+	(bundle_args := (deref bundle_args)@[new_bundle_arg]) fseq
+	let mk_call (name,bname,dir,field) = sprintf "%s-->%s" name field in
+	let new_call_args = map mk_call l then
+	(call_args := ((deref call_args)@new_call_args))
+    in
+    (foreach mk (partition fst snms)) fseq
+    let pre = sprintf "bundle_%s =\n" fn in
+    let post = sprintf "\tCELL \"%s\" [\n" fn in
+    let decl = list2str T pre "" post id (deref bundle_args) then
+    let body =
+	list2str T (sprintf "\t%s " fn) "\n\t\t" "\n];\n" id (deref call_args)
+    then
+    sprintf "%s%s" decl body
+;
+
+end_abstype make_top_bundle make_bundle_version;
+
+
+let convert_bifrost_functions2bundle_functions funs =
+    let bundles = map make_top_bundle funs then
+    let decls = map make_bundle_version funs then
+//    eval_fl_code (bundles@decls)
+foreach (fprintf stdout "%s\n") (bundles@decls)
+;
+
+convert_bifrost_functions2bundle_functions
+    ["eq_unit", "allocator", "boot", "add_unit", "neq_unit", "int2arbi", "eq_unit", "div_mod_unit", "arbi2int", "sub_unit", "arbi_trim", "mul_unit", "arbi_add_sub", "reduction"]
+;

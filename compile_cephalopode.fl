@@ -1,0 +1,21 @@
+load (DIR^"cephalopode.bfl");
+
+let p = cephalopode;
+wtime (p fseq 1);
+
+write_pexlif (DIR^(sprintf "cephalopode_M%d.pexlif" (log2 MEM_SIZE))) p;
+
+let fp = fopen (DIR^"load_cephalopode.fl") "w";
+fprintf fp "// File to load a precompiled version of Cephalopd\n\n\n";
+fprintf fp "// Load type definitions\n";
+foreach (\tf. fprintf fp "cload (DIR^\"%s\");\n" tf) [
+	"types.fl",
+	"reduction/reduction_types.fl",
+	"memory/types.fl"
+];
+fprintf fp "\n\n// Load pexlif\n";
+fprintf fp "let cephalopode = read_pexlif (DIR^(sprintf \"cephalopode_M%%d.pexlif\" (log2 MEM_SIZE)));\n";
+fprintf fp "fprintf stdinfo \"Loading Cephalopde took %%s seconds\\n\" (snd (wtime cephalopode));\n\n";
+fclose fp;
+
+quit;

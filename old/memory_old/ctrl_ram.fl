@@ -1,0 +1,395 @@
+//set_font font_largest;
+cload (DIR^"../types.fl");
+cload (DIR^"ctrl_ram_fsm.fsm.fl");
+
+let CTRL_RAM_WORD_SIZE = 32;	// Size of ctrl word
+let cRAM_LATENCY = 2;		// Phases of latency for ctrl-memory access
+
+
+// ----- Derived constants and types -----
+
+STRUCT "ctrl" [("live", "bit"), ("saved", "bit")];
+TYPE "ctrl_word" CTRL_RAM_WORD_SIZE;
+
+
+let CTRL_SZ = get_hw_type_size "ctrl";
+let CTRL_BANKS = CTRL_RAM_WORD_SIZE/CTRL_SZ;
+let PAIR_ADDR_SZ = log2 CTRL_BANKS;
+let CTRL_ADDR_SZ = ADDR_SZ-PAIR_ADDR_SZ;
+
+TYPE "paddr" PAIR_ADDR_SZ;
+TYPE "caddr" CTRL_ADDR_SZ;
+
+let addr2paddr {addr::addr} =
+    {frombits (lastn PAIR_ADDR_SZ (tobits addr))::paddr}
+;
+
+let addr2caddr {addr::addr} =
+    {frombits (butlastn PAIR_ADDR_SZ (tobits addr))::caddr}
+;
+
+let caddr2addr {caddr::caddr} =
+    {(frombits ((tobits caddr)@(tobits {'0 :: paddr}))) :: addr}
+;
+
+let live_mask =
+    let mk1 n = 2**(2*n-1) in
+    let masks = map mk1 (1 upto CTRL_BANKS) in
+    itlist (defix intOR) masks 0
+;
+
+MEMORY "cRAM" [(MEM_SIZE/CTRL_BANKS, "caddr")] "ctrl_word";
+
+let core_cRAM =
+    bit_input		rw.
+    caddr_input     addr.
+    ctrl_word_input	inp.
+    ctrl_word_output	out.
+    //
+    bit_internal        addr_rdy rw_rdy inp_rdy rd_rdy wr_rdy.
+    cRAM_internal	cram tmp_new_cram new_cram.
+    ctrl_word_internal  local_rd_data.
+    CELL "core_cRAM" [
+        is_stable cRAM_LATENCY addr addr_rdy,
+        is_stable cRAM_LATENCY rw rw_rdy,
+        is_stable cRAM_LATENCY inp inp_rdy,
+        rd_rdy <- addr_rdy '&' rw_rdy,
+        Read_cRAM cram addr local_rd_data,
+        out <- (IF (rd_rdy '&' rw) THEN local_rd_data ELSE 'X),
+        Write_cRAM cram addr inp tmp_new_cram,
+        wr_rdy <- rd_rdy '&' inp_rdy,
+        new_cram <- (IF (wr_rdy '&' '~' rw) THEN tmp_new_cram ELSE cram),
+        cram <: new_cram
+];
+
+
+let cache =
+    bit_input		clk.
+    bit_input		reset.
+    caddr_input		caddr.
+    bit_input		update.
+    ctrl_word_input 	new_cword. 
+    bit_output		match.
+    ctrl_word_output	old_cword. 
+    //
+    internal		old_caddr valid.
+    CELL "cache" [
+	re_ff_en clk update new_cword old_cword,
+	re_ff_en clk update caddr old_caddr,
+	re_ff_en_reset clk update reset '1 valid,
+	match <- valid '&' (old_caddr '=' caddr)
+];
+
+let select_ctrl =
+    ctrl_word_input cword.
+    paddr_input	    addr.
+    ctrl_output	    ctrl.
+    CELL "select_ctrl" [
+	SELECT cword addr ctrl
+];
+
+//STE_debug (pexlif2fsm (flfun2pexlif select_ctrl));
+
+ENUM "clast_fsm" ["ARB_RD", "ARB_WR"];
+
+ENUM "snap_fsm" ["SNAP_IDLE", "DO_SNAP0", "DO_SNAP", "SNAP", "SNAP_DONE",
+			      "DO_INIT0", "DO_INIT", "INIT", "INIT_DONE"
+		];
+
+let copy_live_to_save =
+    ctrl_word_input	inp.
+    ctrl_word_output	res.
+    ctrl_word_internal	tmp.
+    CELL "copy_live_to_save" [
+	tmp <- inp '&' ''live_mask,
+	res <- tmp '|' (tmp '>>' '1)
+];
+
+let ctrl_RAM =
+    bit_input	clk.
+    bit_input	reset.
+    // 
+    bit_input	do_init_req.
+    bit_output	do_init_ack.
+    //
+    bit_input	rd_req.
+    addr_input	rd_addr.
+    bit_output	rd_ack.
+    ctrl_output	rd_out.
+    //
+    bit_input	wr_req.
+    addr_input	wr_addr.
+    ctrl_input	wr_inp.
+    bit_output	wr_ack.
+    //
+    bit_input	do_snap_req.
+    bit_output	do_snap_ack.
+    //
+    addr_internal	addr.
+    paddr_internal	paddr.
+    caddr_internal	caddr.
+    ctrl_word_internal	base_ram_cword ram_cword.
+    ctrl_word_internal	cached_cword out_cword.
+    ctrl_word_internal	new_cword updated_cword snapped_cword.
+    clast_fsm_internal	clast_state.
+    bit_internal	cur_is_rd do_ram_read match.
+    bit_internal	do_ram_write do_ram_read update_cache.
+    bit_internal	wr_ram_rdy rd_ram_rdy.
+    bit_internal	last_was_rd.
+    bit_internal	is_rd_op is_wr_op is_snap_op is_init_op.
+    bit_internal	snap_done snap_prep_ack snap_prep_req.
+    caddr_internal	snap_cnt.
+    snap_fsm_internal	snap_state.
+    bit_internal	init_ack init_req.
+    ctrl_internal	basic_rd_out.
+    CELL "ctrl_RAM" 
+	[ Moore_FSM "clastrate_fsm" clk clast_state (reset, ARB_RD) [
+	    ARB_RD --- is_wr_op --- ARB_WR,
+	    ARB_WR --- is_rd_op --- ARB_RD
+	  ]
+	, Moore_FSM "snap_fsm" clk snap_state (reset, SNAP_IDLE) [
+	    SNAP_IDLE      --- do_snap_req   --- DO_SNAP0,
+	    SNAP_IDLE	   --- do_init_req   --- DO_INIT0,
+	    DO_SNAP0   --- '1	        --- SNAP,
+	    DO_SNAP   --- snap_done     --- SNAP_IDLE,
+	    DO_SNAP   --- '1	        --- SNAP,
+	    SNAP      --- snap_prep_ack --- SNAP_DONE,
+	    SNAP_DONE --- '1	         --- DO_SNAP,
+	    DO_INIT0   --- '1	        --- INIT,
+	    DO_INIT   --- snap_done     --- SNAP_IDLE,
+	    DO_INIT   --- '1	        --- INIT,
+	    INIT      --- init_ack	--- INIT_DONE,
+	    INIT_DONE --- '1	         --- DO_INIT
+	  ]
+	, snap_prep_req <- is_SNAP snap_state
+	, init_req <- is_INIT snap_state
+	, do_snap_ack <- is_DO_SNAP snap_state '&' snap_done
+	, do_init_ack <- is_DO_INIT snap_state '&' snap_done
+	, STATE clk snap_cnt [
+		(is_SNAP_IDLE snap_state, '0),
+		(is_SNAP_DONE snap_state, snap_cnt '+' '1),
+		(is_INIT_DONE snap_state, snap_cnt '+' '1)
+	    ]
+	, snap_done <- snap_cnt '=' ''(MEM_SIZE/CTRL_BANKS)
+	, last_was_rd <- (is_ARB_RD clast_state)
+	, CASE addr [
+		    (is_rd_op, rd_addr),
+		    (is_wr_op, wr_addr),
+		    (is_snap_op, caddr2addr snap_cnt),
+		    (is_init_op, caddr2addr snap_cnt)
+		    ] 'X
+	, paddr <- addr2paddr addr
+	, caddr <- addr2caddr addr
+	//
+	, cache clk reset caddr update_cache new_cword match cached_cword
+	, core_cRAM ('~' do_ram_write) caddr new_cword base_ram_cword
+	, re_ff_en clk rd_ram_rdy base_ram_cword ram_cword
+	, rst_phase_delay cRAM_LATENCY reset do_ram_read rd_ram_rdy
+	, rst_phase_delay cRAM_LATENCY reset do_ram_write wr_ram_rdy
+	//
+	, ctrl_ram_fsm clk reset
+		// inputs
+		init_req last_was_rd match rd_ram_rdy rd_req snap_prep_req
+		wr_ram_rdy wr_req 
+		// outputs
+		do_ram_read do_ram_write init_ack
+		is_init_op is_rd_op is_snap_op is_wr_op
+		rd_ack snap_prep_ack update_cache wr_ack
+	, out_cword <- (IF match THEN cached_cword ELSE ram_cword)
+	, SELECT out_cword paddr basic_rd_out
+	, ah_latch rd_ack basic_rd_out rd_out
+	, INSERT out_cword wr_inp paddr updated_cword
+	, CASE new_cword [
+		    (is_rd_op, out_cword),
+		    (is_wr_op, updated_cword),
+		    (is_snap_op, snapped_cword),
+		    (is_init_op, '0)
+		] 'X
+	, copy_live_to_save out_cword snapped_cword
+];
+
+
+
+//////#define SIMULATE
+////#ifdef SIMULATE
+//
+//
+//ENUM "ifc_fsm"	["I_IDLE", "I_BUSY"];
+//
+//let inp_ifc =
+//    bit_input	clk.
+//    bit_input	reset.
+//    bit_input	inp_req.
+//    input	inp.
+//    bit_output	req.
+//    bit_input	ack.
+//    output	out.
+//    //
+//    ifc_fsm_internal	ifc_state.
+//    bit_internal	start.
+//    internal		prev_inp.
+//    CELL "inp_ifc" [
+//	Moore_FSM "ifc_fsm" clk ifc_state (reset, I_IDLE) [
+//	    I_IDLE --- inp_req --- I_BUSY,
+//	    I_BUSY --- ack --- I_IDLE
+//	],
+//	start <- inp_req '&' (is_I_IDLE ifc_state),
+//	req <- start '|' is_I_BUSY ifc_state,
+//	re_ff_en clk (is_I_IDLE ifc_state) inp prev_inp,
+//	out <- (IF start THEN inp ELSE prev_inp)
+//];
+//    
+//
+//let test_harness =
+//    bit_input	clk.
+//    bit_input	reset.
+//    // 
+//    bit_input   do_init_req.
+//    bit_output  do_init_ack.
+//    //
+//    bit_input	rd_req.
+//    addr_input	rd_addr.
+//    //
+//    bit_input	wr_req.
+//    addr_input	wr_addr.
+//    ctrl_input	wr_inp.
+//    //
+//    bit_input	do_snap_req.
+//    //
+//    bit_output	wr_ack.
+//    bit_output	rd_ack.
+//    ctrl_output	rd_out.
+//    bit_output	do_snap_ack.
+//    //
+//    bit_internal	mid_rd_req.
+//    addr_internal	mid_rd_addr.
+//    bit_internal	mid_wr_req.
+//    addr_internal	mid_wr_addr.
+//    ctrl_internal	mid_wr_inp.
+//    CELL "test_harness"
+//	[ ctrl_RAM clk reset
+//		   do_init_req do_init_ack
+//		   mid_rd_req mid_rd_addr rd_ack rd_out mid_wr_req mid_wr_addr
+//			     mid_wr_inp wr_ack do_snap_req do_snap_ack
+//	, inp_ifc clk reset rd_req rd_addr mid_rd_req rd_ack mid_rd_addr
+//	, inp_ifc clk reset wr_req (wr_addr,wr_inp) mid_wr_req wr_ack (mid_wr_addr,mid_wr_inp)
+//    ]
+//;
+//
+//
+//
+//
+//let p = flfun2pexlif test_harness;
+//p fseq ();
+//let vis = STE_debug (pexlif2fsm p);
+//vis;
+//
+//let ram line = sprintf "i1/i21/ram[%d][31:0]" line;
+//let rd_addr = sprintf "rd_addr[%d:0]" (ADDR_SZ-1);
+//let wr_addr = sprintf "wr_addr[%d:0]" (ADDR_SZ-1);
+//let snap_cnt = sprintf "i1/snap_cnt[%d:0]" (CTRL_ADDR_SZ-1);
+//let snap_state = sprintf "i1/snap_state[2:0]";
+//
+//let tab_1 = draw_fanin vis (0) 100
+//		["rd_ack","rd_out[1:0]","wr_ack", "do_snap_ack"]
+//;
+//tab_1;
+//add_waveform vis ["clk"];
+//add_waveform vis ["rd_req"];
+//add_waveform vis ["rd_ack"];
+//add_waveform vis ["rd_out[1:0]"];
+//add_waveform vis ["wr_req"];
+//add_waveform vis ["wr_ack"];
+//add_waveform vis ["rd_addr[7:0]"];
+//add_waveform vis ["wr_addr[7:0]"];
+//add_waveform vis ["wr_inp[1:0]"];
+//add_waveform vis [ram 0];
+//add_waveform vis [ram 1];
+//add_waveform vis ["do_snap_req"];
+//add_waveform vis [snap_cnt];
+//add_waveform vis [snap_state];
+//draw_set_time vis 0;
+//add_waveform vis ["do_init_req"];
+//add_waveform vis [ram 3];
+//
+//
+//
+//let N = 150;
+//
+//let T0 = 6*(MEM_SIZE/CTRL_BANKS)+4; // overwrite memory content
+//let T1 = T0+2;	// rd
+//let T2 = T1+6;	// rd
+//let T3 = T2+5;	// rd
+//let T4 = T3+7;	// wr
+//let T5 = T4+12;	// wr
+//let T6 = T5+8;	// rd
+//let T7 = T6+10;	// rd
+//let T8 = T7+8;	// rd
+//
+//let wl = map (\n. T,n,2*T0,2*T0+1)
+//	    (md_expand_vectors [ram 0, ram 1, ram 2, ram 3])
+//;
+//
+//let ant =
+//    //-------------------------------
+//    // PREAMBLE
+//    //-------------------------------
+//    "clk" is_clock N
+//  and
+//    "reset" is 1 in_cycle 0 otherwise 0 until N cycles
+//  and
+//    ram 0 is "a[31:0]" in_cycle T0
+//  and
+//    ram 1 is "b[31:0]" in_cycle T0
+//  and
+//    ram 2 is 0xffff in_cycle T0
+//  and
+//    ram 3 is 0xabba in_cycle T0
+////  and
+////    ram 4 is 0x1ff1 in_cycle T0
+//  and
+//    "do_snap_req" is 1 in_cycle (T0+1) otherwise 0 until N cycles
+//  and
+//    "do_init_req" is 1 in_cycle 2 otherwise 0 until N cycles
+//  and
+//    //-------------------------------
+//    // TEST
+//    //-------------------------------
+//    "rd_req" is 1 in_cycle T1 followed_by
+//		1 in_cycle T2 followed_by
+//		1 in_cycle T3 followed_by
+//		1 in_cycle T6 followed_by
+//		1 in_cycle T7 followed_by
+//		1 in_cycle T8 
+//	    otherwise 0 until N cycles
+//  and
+//    rd_addr is 0 in_cycle T1 followed_by
+//	       0xe in_cycle T2 followed_by
+//	       0x13 in_cycle T3 followed_by
+//	       0xf in_cycle T6 followed_by
+//	       0xf in_cycle T7 followed_by
+//	       0x13 in_cycle T8 
+//	    otherwise X until N cycles
+//  and
+//    //-------------------------------
+//    // TEST 2
+//    //-------------------------------
+//    "wr_req" is 1 in_cycle T4 followed_by
+//		1 in_cycle T5 
+//	     otherwise 0 until N cycles
+//  and
+//    wr_addr is 0x13 in_cycle T4 followed_by
+//	       0xf in_cycle T5
+//	    otherwise X until N cycles
+//  and
+//    "wr_inp[1:0]" is "c[1:0]" in_cycle T4 followed_by
+//		      "d[1:0]" in_cycle T5
+//		      otherwise X until N cycles
+//;
+//
+//
+//STE "-e -w 1000" vis wl ant [] [];
+//
+//
+////#endif
+//

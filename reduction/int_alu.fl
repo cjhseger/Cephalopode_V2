@@ -1,0 +1,47 @@
+cload (DIR^"../types.fl");
+
+BUNDLE "B_int_alu"
+        [("op", "primitive"), ("arg1", "Int"), ("arg2", "Int")]
+        [("res", "Int")]
+;
+
+let b2i {c::bit} = IF c THEN {'1::Int} ELSE '0;
+
+let int_alu =
+    bit_input               clk.
+    bit_input               reset.
+    B_int_alu_input	    S_int_alu.
+    //
+    Int_internal	    a b a_b sum.
+    Int1_internal	    e_a e_b e_r.
+    bit_internal	    cin neg eq gt.
+    primitive_internal	    alu_op.
+    //
+    CELL "int_alu" [
+	alu_op <- S_int_alu-->op,
+	a <- S_int_alu-->arg1,
+	b <- S_int_alu-->arg2,
+	neg <- (alu_op '=' P_MINUS),
+	cin <- (IF neg THEN '1 ELSE '0),
+	a_b  <- (IF neg THEN ('~' b) ELSE b),
+	e_a <- frombits (tobits a @ [cin]),
+	e_b <- frombits (tobits a_b @ [cin]),
+	e_r <- e_a '+' e_b,
+	sum <- frombits (butlast (tobits e_r)),
+	eq  <- a '=' b,
+	gt  <- a '>' b,
+	CASE (S_int_alu-->res) [
+	    ((alu_op '=' P_PLUS),	sum),
+	    ((alu_op '=' P_MINUS),	sum),
+	    ((alu_op '=' P_EQ),		b2i eq),
+	    ((alu_op '=' P_NEQ),	b2i ('~' eq)),
+	    ((alu_op '=' P_GT),		b2i gt),
+	    ((alu_op '=' P_GEQ),	b2i (eq '|' gt))
+	] 'X
+];
+
+create_default_version int_alu;
+
+//STE_debug (pexlif2fsm int_alu);
+//IDV int_alu "DB_QQ" [];
+//system "'/bin/rm -rf DB_QQ";

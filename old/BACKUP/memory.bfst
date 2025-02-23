@@ -1,0 +1,143 @@
+#include "memory.binc"
+
+action ROM_read:ROMRead provided by external via ROM_proto;
+
+action RAM_write:RAMWrite provided by external via RAM_proto;
+action RAM_read:RAMRead provided by external via RAM_proto;
+
+action cRAM_write:cRAMWrite provided by external via cRAM_proto;
+action cRAM_read:cRAMRead provided by external via cRAM_proto;
+
+action mark_init:MarkInit provided by external via std_proto;
+action set_snap_ready:SetSnapReady provided by external via std_proto;
+action set_top_of_heap:SetTopOfHeap provided by external via std_proto;
+ 
+// Useful macros (fl functions)
+define addr2raddr	= fl "\\a. addr2raddr a";
+define get_c_row_addr	= fl "\\a. get_c_row_addr a";
+define get_pair_addr	= fl "\\a. get_pair_addr a";
+
+define extract_ctrl	= fl "\\cw. \\block. extract_ctrl cw block";
+define select_addr	= fl "\\saved.\\addr. select_addr saved addr";
+define replace		= fl "\\cw. \\bl. \\new. replace cw bl new";
+define copy_new_to_save = fl "\\cw. copy_new_to_save cw";
+define node2addr	= fl "\\nd. node2addr nd";
+
+define cZERO		= fl "{'0:: caddr}" :: cAddr;
+define ctrlZERO		= fl "{'0:: ctrl_word}" :: cWord;
+
+module memory;
+protocol std_proto;
+
+function main : op:Mem_op -> addr:Addr ->din:Node -> dout:Node
+{
+    var cAddr	ci;
+    var bit	ctrl_cache_valid;
+    var cAddr	ctrl_cache_addr;
+    var cWord	ctrl_cache_line;
+    var bit	snap_ctrl_cache_valid;
+    var cAddr	snap_ctrl_cache_addr;
+    var cWord	snap_ctrl_cache_line;
+    var bit	mode;
+    var bit	prepare_snap;
+    var cAddr	snap_prep_cnt;
+    var cWord	snap_prep_d;
+    var Addr	cnt;
+    var Addr	mi;
+    var Node	nd;
+    var Addr	ri;
+    var cAddr	c_row;
+    var pAddr	c_block;
+    var Ctrl	cw;
+    var eAddr	final_addr;
+    
+    if( op == MEM_INIT ) {
+	mode = 0;
+	prepare_snap = 0;
+	snap_prep_cnt = cZERO;
+	// Initialize ctrl RAM (and cache)
+	ctrl_cache_valid = 0;
+	for( ci = 0; ci < CRAM_SIZE; ci++ ) {
+	    do cRAM_write ci ctrlZERO;
+	}
+	// Initialize mark RAM
+	do mark_init;
+	// Copy ROM to RAM
+	cnt = node2addr (do ROM_read (0::rAddr));
+	mi = 0::Addr;
+	// Do it in this order to parallelize ROM read and RAM write
+	nd = do ROM_read (1::rAddr);
+	--%<--
+	for( ri = 1; ri <= cnt; ri++ ) {
+	    do RAM_write (select_addr (0::bit) mi) nd;
+	    nd = do ROM_read (addr2raddr ri);
+	    mi++;
+	}
+	--%<--
+	do set_top_of_heap cnt;
+	--%<--
+    //
+    } else if ( op == MEM_READ ) {
+	c_row = get_c_row_addr addr;
+	c_block = get_pair_addr addr;
+	if( ~ctrl_cache_valid | (c_row != ctrl_cache_addr) ) {
+	    ctrl_cache_line = do cRAM_read c_row;
+	    ctrl_cache_valid = 1;
+	    ctrl_cache_addr = c_row;
+	}
+	cw = extract_ctrl ctrl_cache_line c_block;
+	final_addr = select_addr (cw-->live) addr;
+	dout = do RAM_read final_addr;
+    //
+    }
+  else if ( op == SNAP_MEM_READ ) {
+	c_row = get_c_row_addr addr;
+	c_block = get_pair_addr addr;
+	if( ~ctrl_cache_valid | (c_row != ctrl_cache_addr) ) {
+	    ctrl_cache_line = do cRAM_read c_row;
+	    ctrl_cache_valid = 1;
+	    ctrl_cache_addr = c_row;
+	}
+	cw = extract_ctrl ctrl_cache_line c_block;
+	final_addr = select_addr cw-->saved addr;
+	dout = do RAM_read final_addr;
+    //
+    } else if ( op == MEM_WRITE ) {
+	c_row = get_c_row_addr addr;
+	c_block = get_pair_addr addr;
+	if( ~ctrl_cache_valid | (c_row != ctrl_cache_addr) ) {
+	    ctrl_cache_line = do cRAM_read c_row;
+	    ctrl_cache_valid = 1;
+	    ctrl_cache_addr = c_row;
+	}
+	cw = extract_ctrl ctrl_cache_line c_block;
+	if( mode ) {
+	    cw-->live = ~cw-->saved;
+	    ctrl_cache_line = replace ctrl_cache_line c_block cw;
+	    do cRAM_write c_row ctrl_cache_line;
+	}
+	final_addr = select_addr cw-->live addr;
+	do RAM_write final_addr din;
+    } else if ( op == SNAP_PREPARE ) {
+	prepare_snap = 1;
+	mode = 0;
+    } else if ( op == SNAP_TAKE ) {
+	mode = 1;
+	do set_snap_ready 0;
+    }
+
+    if( prepare_snap ) {
+	snap_prep_d = do cRAM_read snap_prep_cnt;
+	snap_prep_d = copy_new_to_save snap_prep_d;
+	do cRAM_write snap_prep_cnt snap_prep_d;
+	if ( snap_prep_cnt == (CRAM_SIZE-1) ) {
+	    do set_snap_ready 1;
+	    snap_prep_cnt = cZERO;
+	    prepare_snap = 0;
+	} else {
+	    snap_prep_cnt++;
+	}
+    }
+    return;
+}
+

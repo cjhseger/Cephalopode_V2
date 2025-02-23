@@ -1,0 +1,6 @@
+cload "mk_rom3.fl";
+
+let mults = 2* 2* 2* 2* 2* 2* 2* 2* 2* 2* 2* 2* 2* 2* 2; 
+
+mk_cephalopode_rom "_mults.rom" "mults" T;
+

@@ -1,0 +1,7 @@
+load "idv.fl";
+
+let load_files = map (\f.DIR^f) ["../types.fl", "gc_stack.bfl", "gc_ctrl.bfl"];
+
+mk_interconnect_fub "gc_unit" load_files T ["gc_ctrl", "gc_stack"] T;
+
+quit;

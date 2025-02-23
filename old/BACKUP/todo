@@ -1,0 +1,30 @@
+
+
+
+let modules = [
+    "mem_init",
+    "mem_read",
+    "mem_write",
+    "snap_prepare",
+    "snap_take",
+    "snap_read",
+    "mark_get",
+    "mark_set",
+    "snap_ready",
+    "mem_get_heap",
+    "get_top_addr"
+];
+
+
+mem_init
+mem_read
+mem_write
+snap_read
+
+
+snap_prepare
+snap_take
+snap_ready
+
+mark_get
+mark_set

@@ -1,0 +1,196 @@
+#include "primitives.binc"
+
+// Actions
+action arb_rf_length:ArbRfLength provided by external via std_proto;
+action arb_rf_new:ArbRfNew provided by external via std_proto;
+action arb_rf_alloc:ArbRfAlloc provided by external via std_proto;
+action arb_rf_get:ArbRfGet[2] provided by external via std_proto;
+action arb_rf_set:ArbRfSet provided by external via std_proto;
+action arb_rf_pop:ArbRfPop provided by external via std_proto;
+action arb_rf_free:ArbRfFree provided by external via std_proto;
+//
+action int2arbi:Int2Arbi provided by external via std_proto;
+action arbi2int:Arbi2Int provided by external via std_proto;
+action arbi_trim:ArbiTrim provided by external via std_proto;
+
+action adder:
+            (arg1:Aint -> arg2:Aint -> cin:bit -> res:Aint
+                reading [] writing [])
+            provided by external via comb_proto
+;
+
+
+
+
+
+
+// Macros
+define AINT_SZ	 = ((fl "{''AINT_SZ::Aint}") :: Aint);
+define ZERO	 = ((fl "{'0::Aint}") :: Aint);
+define ONE	 = ((fl "{'1::Aint}") :: Aint);
+define MINUS_ONE = ((fl "{'-1::Aint}") :: Aint);
+define MSB	 = ((fl "\\z. hd (tobits z)") :: Aint -> bit);
+define Upper	 = ((fl "\\z. Upper z") :: Aint -> HAint);
+define Lower	 = ((fl "\\z. Lower z") :: Aint -> HAint);
+define ExtUpper	 = ((fl "\\z. ZX (Upper z)") :: Aint -> Aint);
+define ExtLower	 = ((fl "\\z. ZX (Lower z)") :: Aint -> Aint);
+define Merge	 = ((fl "\\h.\\l. Merge h l") :: Aint -> Aint -> Aint);
+
+module arbi_div;
+protocol std_proto;
+
+function main : op:Primitive -> arg1:Addr -> arg2:Addr -> res:Node
+{
+    var index	N, D0, D, Q, R,;
+    var Aint	wN, wD0, tmp;
+    var alen	lN, lD0, n, i;
+    var bit	N_is_neg, D0_is_neg;
+    var index	aN, aD0;
+
+    N = do int2arbi arg1;
+    N_is_neg = call is_negative N;
+    aN = if( N_is_neg ) then call negate N else N;
+    lN = do arb_rf_length aN;
+    //
+    D0 = do int2arbi arg2;
+    D0_is_neg = call is_negative D0;
+    aD0 = if( D0_is_neg ) then call negate D0 else D0;
+    lD0 = do arb_rf_length aD0;
+    n = if (lN > lD) then lN else lD; 
+    //
+    //   R := N
+    R = do arb_rf_new;
+    do arb_rf_alloc R (2*n);
+    for(i = 0; i < (2*n); i++) {
+	tmp = if (i < lN) then (do arb_rf_get aN i) else ZERO;
+	do arb_rf_set R i tmp;
+    }
+    //
+    //   D := D << n            -- R and D need twice the word width of N and Q
+    D = do arb_rf_new;
+    do arb_rf_alloc D (2*n);
+    m = 2*n-lD0;
+    for(i = 0; i < (2*n); i++) {
+	tmp = if (i < m) then ZERO else (do arb_rf_get aD0 (i-m));
+	do arb_rf_set R i tmp;
+    }
+    // Non-restoring division
+    //   for i = n − 1 .. 0 do  -- for example 31..0 for 32 bits
+    //     if R < 0 then
+    //       q(i) := 0 (-1)
+    //       R := 2 * R + D
+    //     else
+    //       q(i) := 1 (+1)
+    //       R := 2 * R − D
+    //     end if
+    //   end
+    let bits = 2*n*AINT_SZ;
+    for(bit = bits-1; bit >= 0; bit = bit-1) {
+	tmpQ = do arb_rf_get Q (GET_CHUNK(bit));
+
+	if( MSB(do arb_rf_get R (2*n-1)) ) {
+	    
+    }
+
+
+
+    //
+    // Q := Q − ~Q  (Q minus 1's complement of Q)
+    //
+    // Finally:
+    //
+    //  if R < 0 then
+    //    Q := Q − 1
+    //    R := R + D  -- Needed only if the remainder is of interest.
+    //  end if
+    //
+
+
+
+
+
+
+
+
+
+}
+
+inline function updateR : add:bit -> l:alen -> R:index -> D:index -> ()
+{
+    var Aint	carry, wR, wD, wz;
+    var bit	mR;
+    // Multiply R by 2
+    carry = ZERO;
+    for(i = 0; i < l; i++) {
+	wR = do arb_rf_get R i;
+	mR = MSB(wR);
+	wR = (wR << 1) | carry;
+	do arb_rf_set R i wR;
+	carry = if mx then ONE else ZERO;
+    }
+    // Now add/subtract D
+    carry = if add then ZERO else ONE;
+    for(i = 0; i < l; i++) {
+	wR = do arb_rf_get R i;
+	wD = do arb_rf_get D i;
+	wD = if add then wD else ~wD;
+	wz = do adder wR wD carry;
+	do arb_rf_set R i wz;
+	mR = MSB(wR);
+	mz = MSB(wz);
+	carry = if (mR & ~mz) then ONE else ZERO;
+    }
+}
+
+inline function add2 : l:alen -> x:index -> l:alen -> ()
+{
+    var Aint	carry, wx;
+    var bit	mx;
+    carry = ZERO;
+    for(i = 0; i < l; i++) {
+	wx = do arb_rf_get x i;
+	mx = MSB(wx);
+	wx = (wx << 1) | carry;
+	do arb_rf_set z i wz;
+	carry = if mx then ONE else ZERO;
+    }
+}
+
+
+inline function negate : x:index -> z:index
+{
+    var alen	l, i;
+    var Aint	carry, wx, wz;
+    var bit	mx, mz;
+
+    z = do arb_rf_new;
+    l = do arb_rf_length x;
+    do arb_rf_alloc z (l+1);
+    carry = ONE;
+    for(i = 0; i < l; i++) {
+	wx = ~(do arb_rf_get x i);
+	wz = do adder wx carry 0;
+	do arb_rf_set z i wz;
+	mx = MSB(wx);
+	mz = MSB(wz);
+	carry = if (mx & ~mz) then ONE else ZERO;
+    }
+    if( ~(MSB(wz) == MSB(wx)) ) {
+	do arb_rf_set z l (if MSB(wz) then ZERO else MINUS_ONE);
+    } else {
+	do arb_rf_pop z;
+	do arbi_trim z;
+    }
+    return;
+}
+
+
+inline function is_negative : x:index -> res:bit
+{
+    var alen	l;
+    var Aint	msd;
+    l = do arb_rf_length x;
+    msd = do arb_rf_get x (l-1);
+    res = MSB(msd);
+    return;
+}

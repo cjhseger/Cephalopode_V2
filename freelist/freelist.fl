@@ -1,0 +1,97 @@
+cload (DIR^"../types.fl");
+
+BUNDLE "B_gc_freelist_checkout"
+        [("clkenb", "bit"), ("req", "bit")] 
+        [("ack", "bit"), ("free", "addr")]
+;   
+
+BUNDLE "B_gc_freelist_checkin" 
+        [("clkenb", "bit"), ("req", "bit"), ("free", "addr")] 
+        [("ack", "bit")]
+;   
+
+BUNDLE "B_alloc_freelist_empty"
+        []
+        [("empty", "bit")]
+;
+
+BUNDLE "B_alloc_freelist_get_next"
+        [("clkenb", "bit"), ("req", "bit")]
+        [("ack", "bit"), ("free", "addr")]
+;
+
+BUNDLE "B_boot_freelist_checkin"
+        [("clkenb", "bit"), ("req", "bit"), ("free", "addr")]
+        [("ack", "bit")]
+;
+
+BUNDLE "B_boot_freelist_checkout"
+        [("clkenb", "bit"), ("req", "bit")]
+        [("ack", "bit"), ("free", "addr")]
+;
+
+BUNDLE "B_mem_unit"
+        [("clkenb", "bit"), ("req", "bit"), ("op", "mem_op"), ("addr", "addr"), ("din", "node")]
+        [("ack", "bit"), ("dout", "node")]
+;
+
+
+ENUM "owner" ["IDLE", "GC", "ALLOC", "BOOT"];
+
+let freelist =
+    bit_input				clk.
+    bit_input				reset.
+    B_gc_freelist_checkout_input	S_gc_freelist_checkout.
+    B_gc_freelist_checkin_input		S_gc_freelist_checkin.
+    B_alloc_freelist_empty_input	S_alloc_freelist_empty.
+    B_alloc_freelist_get_next_input	S_alloc_freelist_get_next.
+    B_boot_freelist_checkout_input	S_boot_freelist_checkout.
+    B_boot_freelist_checkin_input	S_boot_freelist_checkin.
+    B_mem_unit_output			S_mem_unit.
+    // Internals
+    owner_internal			owner.
+    addr_internal			free_value.
+    bit_internal			is_idle do_read_next non_nil.
+    CELL "free_list" [
+	is_idle <- owner '=' IDLE,
+	non_nil <- (free_value '!=' '0),
+	STATE clk owner [
+	    (reset,						    IDLE),
+	    ((is_idle '&' S_gc_freelist_checkout-->req),	    GC),
+	    ((is_idle '&' S_boot_freelist_checkout-->req),	    BOOT),
+	    ((is_idle '&'
+	      S_alloc_freelist_get_next-->req '&'
+	      non_nil '&'
+	      '~' (S_mem_unit-->ack)),				    ALLOC),
+	    ((S_gc_freelist_checkin-->req),			    IDLE),
+	    ((S_boot_freelist_checkin-->req),			    IDLE),
+	    ((owner '=' ALLOC) '&' S_mem_unit-->ack,		    IDLE)
+	],
+	do_read_next <- is_idle '&' S_alloc_freelist_get_next-->req '&' non_nil
+		    '|' (is_ALLOC owner),
+        S_mem_unit-->req <- do_read_next,
+        S_mem_unit-->clkenb <- S_mem_unit-->req,
+        S_mem_unit-->op <- MEM_READ,
+        S_mem_unit-->din <- '0,
+        S_mem_unit-->addr <- free_value,
+	STATE clk free_value [
+	    (reset,					    '0),
+	    (((owner '=' GC) '&' S_gc_freelist_checkin-->req),
+		S_gc_freelist_checkin-->free),
+	    ((do_read_next '&' S_mem_unit-->ack), S_mem_unit-->dout-->left),
+	    (((owner '=' BOOT) '&' S_boot_freelist_checkin-->req),
+		S_boot_freelist_checkin-->free)
+	],
+	S_gc_freelist_checkout-->free <- free_value,
+	S_alloc_freelist_get_next-->free <- free_value,
+	S_alloc_freelist_empty-->empty <- '~' non_nil,
+	S_boot_freelist_checkout-->free <- free_value,
+	//
+	S_alloc_freelist_get_next-->ack <- S_mem_unit-->ack,
+	S_gc_freelist_checkout-->ack <- S_gc_freelist_checkout-->req,
+	S_gc_freelist_checkin-->ack <- S_gc_freelist_checkin-->req,
+	S_boot_freelist_checkout-->ack <- S_boot_freelist_checkout-->req,
+	S_boot_freelist_checkin-->ack <- S_boot_freelist_checkin-->req
+];
+
+create_default_version freelist;

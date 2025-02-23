@@ -1,0 +1,42 @@
+cload (DIR^"types.fl");
+
+BUNDLE "B_get_mem_state"
+        []
+        [("mode", "bit"),
+	 ("prepare_snap", "bit"),
+	 ("snap_prep_cnt", "caddr")]
+;
+
+BUNDLE "B_set_mem_state"
+        [("clkenb", "bit"), ("req", "bit"),
+	 ("mode", "bit"), ("prepare_snap", "bit"), ("snap_prep_cnt", "caddr")]
+        [("ack", "bit")]
+;
+
+let mem_state =
+    bit_input		    clk.
+    bit_input		    reset.
+    B_get_mem_state_input   S_get_mem_state.
+    B_set_mem_state_input   S_set_mem_state.
+    // State
+    bit_internal	    s_mode.
+    bit_internal	    s_prepare_snap.
+    caddr_internal	    s_snap_prep_cnt.
+    bit_internal	    en eclk.
+    //
+    CELL "mem_state" [
+	en <- S_set_mem_state-->clkenb,
+	clockgate_with_reset clk reset en eclk,
+	re_ff_en eclk (S_set_mem_state-->req)
+		     (S_set_mem_state-->mode) s_mode,
+	re_ff_en eclk (S_set_mem_state-->req)
+		     (S_set_mem_state-->prepare_snap) s_prepare_snap,
+	re_ff_en eclk (S_set_mem_state-->req)
+		     (S_set_mem_state-->snap_prep_cnt) s_snap_prep_cnt,
+	S_set_mem_state-->ack <- S_set_mem_state-->req,
+	// 
+	S_get_mem_state-->mode <- s_mode,
+	S_get_mem_state-->prepare_snap <- s_prepare_snap,
+	S_get_mem_state-->snap_prep_cnt <- s_snap_prep_cnt
+];
+create_default_version mem_state;

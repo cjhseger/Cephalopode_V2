@@ -1,0 +1,177 @@
+#include "../cephalopode_types.binc" 
+
+module gc_ctrl;
+protocol big_proto;
+
+action mem_unit:MemUnit provided by external via mem_proto;
+action mark_unit:MarkUnit provided by external via mark_proto;
+
+action snap_ready:SNAP_READY provided by external via snap_ready_proto;
+action get_snapshot_top_addr:GET_TOP_ADDR provided by external
+			     via get_top_addr_proto
+;
+action set_snapshot_top_addr:SNAPSHOT_TOP_ADDR_SET provided by external
+			     via set_snapshot_top_addr_proto
+;
+
+action gc_freelist_checkout:FreelistCheckout provided by external via freelist_proto;
+action gc_freelist_checkin:FreelistCheckin provided by external via freelist_proto;
+
+// Graph freezing
+action freeze_graph:FreezeGraph provided by external via freeze_proto;
+action unfreeze_graph:UnfreezeGraph provided by external via freeze_proto;
+
+// Garbage collection stack
+state GCS;
+define gcs_proto = {{ data = "ackpulse", power = "clockgating" }};
+define gcsnonempty_proto = {{ data = "immediate" }};
+actiontype GcsPush = din:Addr -> () reading [] writing [GCS];
+actiontype GcsPop = dout:Addr reading [GCS] writing [GCS];
+actiontype GcsNonEmpty = b:bit reading [GCS] writing [];
+action gcs_push:GcsPush provided by external via gcs_proto;
+action gcs_pop:GcsPop provided by external via gcs_proto;
+action gcs_nonempty:GcsNonEmpty provided by external via gcsnonempty_proto;
+action gc_cnt_value:GcCntValue provided by external via gcsnonempty_proto;
+action gc_cnt_dec:GcCntDec provided by external via std_proto;
+
+function main : ()
+{
+    var Addr freelist;
+    do_snap_prepare;
+    while(1)
+    {
+	if( do gc_cnt_value > Threshold ) {
+	    while(~ do snap_ready)
+	    {
+		--%<--
+	    }
+
+	    do freeze_graph;
+	    --%<--
+	    do_snap_take;
+	    do set_snapshot_top_addr;
+	    freelist = do gc_freelist_checkout;
+	    call mark_and_push freelist;
+	    do gc_freelist_checkin freelist;
+	    call mark_and_push GRAPH_ROOT;
+	    --%<--
+	    do unfreeze_graph;
+
+	    call mark;
+	    do_snap_prepare;
+	    call sweep;
+	}
+    }
+    return;
+}
+
+function mark_and_push : p:Addr -> ()
+{
+    if(p != NULL)
+    {
+        if(~ do_mark_get p)
+        {
+            do_mark_set p 1;
+            do gcs_push p;
+        }
+    }
+    return;
+}
+
+function mark : ()
+{
+    var Addr p;
+    var Node n;
+
+    while(do gcs_nonempty)
+    {
+        p = do gcs_pop;
+        n = do_snap_read p;
+
+        if(n-->ntype == G_CONS | n-->ntype == G_APP)
+        {
+	    // Use this order to minimize stack depth for long lists!
+            call mark_and_push n-->right;
+            call mark_and_push n-->left;
+        }
+        else if(n-->ntype == G_FREE | n-->ntype == G_INDIR | n-->ntype == G_AINT)
+        {
+            call mark_and_push n-->left;
+        }
+    }
+
+    return;
+}
+
+function sweep : ()
+{
+    var Addr sweeper, p, end, newfree_head, newfree_tail, top_of_heap;
+    var Node n;
+    var bit  work;
+    var Addr stack_ptr;
+
+    newfree_head = NULL;
+    newfree_tail = NULL;
+
+    // TODO refactor to min-max address
+    top_of_heap = do get_snapshot_top_addr;
+    sweeper = HEAP_MIN;
+    work = 1;
+    while( work ) {
+        if(do_mark_get sweeper)
+        {
+            do_mark_set sweeper 0;
+
+            // Compress indirections
+            n = do_mem_read sweeper;
+            if(n-->ntype == G_INDIR)
+            {
+                p = sweeper;
+                stack_ptr = 0;
+                while(n-->ntype == G_INDIR & stack_ptr != GCS_MAX)
+                {
+                    do gcs_push p;
+                    p = n-->left;
+                    n = do_mem_read p;
+                    stack_ptr++;
+                }
+                end = p;
+                while(do gcs_nonempty)
+                {
+                    p = do gcs_pop;
+                    // Warning: trashes back-pointers!
+                    do_mem_write p (make_indirection end);
+                }
+            }
+        }
+        else
+        {
+            // Add to new free list
+            n = 0;
+            n-->ntype = G_FREE;
+            n-->left = newfree_head;
+            do_mem_write sweeper n;
+            newfree_head = sweeper;
+            newfree_tail =
+		    if newfree_tail == NULL then sweeper else newfree_tail;
+	    do gc_cnt_dec;
+        }
+	if( sweeper == top_of_heap ) {
+	    work = 0;
+	} else {
+	    sweeper++;
+	}
+    }
+
+    // Atomically update the freelist if needed
+    if(newfree_tail != NULL)
+    {
+        n = do_mem_read newfree_tail;
+        n-->left = do gc_freelist_checkout;
+        do_mem_write newfree_tail n;
+        do gc_freelist_checkin newfree_head;
+    }
+
+    return;
+}
+

@@ -1,0 +1,35 @@
+// Memories
+cload (DIR^"../types.fl");
+
+// RAM configurations
+let RAM_LATENCY = 2;  // Phases of latency for RAM memory access
+let RAM_WIDTH = get_hw_type_size "node";
+let RAM_LINES = MEM_SIZE;
+
+// ROM configurations
+let ROM_LATENCY = 2;  // Phases of latency for ROM memory access
+let ROM_WIDTH = get_hw_type_size "node";
+let ROM_LINES = ROM_SIZE;
+let ROM_ADDR_SZ = bits_needed (ROM_LINES-1);
+TYPE "rom_addr" ROM_ADDR_SZ;
+
+let node2rom_addr {nd::node} =
+    let raw = lastn (get_hw_type_size "rom_addr") (tobits nd) in
+    {(frombits raw) :: rom_addr}
+;
+
+ENUM "mc_mode" ["NORMAL", "SNAPSHOT"];
+
+ENUM "bank" ["A", "b"];
+
+// Statemachine for memory
+ENUM "mc_state" [
+		"MC_INIT",
+		"MC_RD",
+		"MC_SNAP_RD",
+		"MC_A_WR_1",
+		"MC_A_WR_2",
+		"MC_GC_WR_1",
+		"MC_GC_WR_2"
+];
+

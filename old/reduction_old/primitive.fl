@@ -1,0 +1,367 @@
+cload (DIR^"combinator_list.fl");
+cload (DIR^"reduction_types.fl");
+
+cload (DIR^"prim_ops/add_unit.bfst.fl");
+cload (DIR^"prim_ops/sub_unit.bfst.fl");
+cload (DIR^"prim_ops/mul_unit.bfst.fl");
+cload (DIR^"prim_ops/div_mod_unit.bfst.fl");
+cload (DIR^"prim_ops/eq_unit.bfst.fl");
+cload (DIR^"prim_ops/neq_unit.bfst.fl");
+cload (DIR^"prim_ops/arbi.fl");
+cload (DIR^"../arbiters/arb_memory.fl");
+cload (DIR^"../arbiters/arb_alloc.fl");
+
+begin_abstype;
+
+
+let prim_l = [
+        // Name       Args 
+        (P_PLUS,        2),
+        (P_MINUS,       2),
+        (P_TIMES,       2),
+        (P_DIVMOD,      3),
+        (P_EQ,          2),
+        (P_NEQ,         2),
+        (P_GT,          2),
+        (P_GEQ,         2),
+        (P_AND,         2),
+        (P_OR,          2),
+        (P_NOT,         1),
+        (P_COND,        3)  // cond then_expr else_expr
+];
+
+let NBR_PRIMS = length prim_l;
+
+let pget prim l = 
+    let idx = find_first0 (\(name,args). name == prim) prim_l in
+    idx = 0 => error "Illegal primitive to pget" |
+    el idx l
+;
+
+let ADD  l = pget P_PLUS l;
+let SUB  l = pget P_MINUS l;
+let MUL  l = pget P_TIMES l;
+let DIVMOD  l = pget P_DIVMOD l;
+let EQ   l = pget P_EQ l;
+let NEQ  l = pget P_NEQ l;
+let GT   l = pget P_GT l;
+let GEQ  l = pget P_GEQ l;
+let AND  l = pget P_AND l;
+let OR   l = pget P_OR l;
+let NOT  l = pget P_NOT l;
+let COND l = pget P_COND l;
+
+let msplit src sels dsts = map2 (\sel.\dst.  dst <- SX sel '&' src) sels dsts;
+
+let primitive_exe =
+    bit_input		clk reset.
+    bit_input		req.
+    bit_output		ack.
+    primitive_input	op.
+    addr_list_input	arg_addrs.
+    node_output		redex_result.
+    //
+    bit_output		a'mem_read'req.
+    bit_input		a'mem_read'ack.
+    addr_output		a'mem_read'i'p.
+    node_input		a'mem_read'o'dout.
+    //
+    bit_output		a'mem_write'req.
+    bit_input		a'mem_write'ack.
+    addr_output		a'mem_write'i'p.
+    node_output		a'mem_write'i'din.
+    //
+    bit_output		a'mem_alloc'req.
+    bit_input		a'mem_alloc'ack.
+    addr_input		a'mem_alloc'o'p.
+    //
+    // Internal
+    //
+    bit_list_internal NBR_PRIMS	    sels.
+    //
+    bit_list_internal NBR_PRIMS	    l_reqs.
+    bit_list_internal NBR_PRIMS	    l_acks.
+    node_list_internal NBR_PRIMS    l_results.
+    //
+    bit_list_internal NBR_PRIMS	    l_mem_read_reqs.
+    bit_list_internal NBR_PRIMS	    l_mem_read_acks.
+    addr_list_internal NBR_PRIMS    l_mem_read_addr.
+    node_list_internal NBR_PRIMS    l_mem_read_dout.
+    //
+    bit_list_internal NBR_PRIMS	    l_mem_write_reqs.
+    bit_list_internal NBR_PRIMS	    l_mem_write_acks.
+    addr_list_internal NBR_PRIMS    l_mem_write_addr.
+    node_list_internal NBR_PRIMS    l_mem_write_din.
+    //
+    bit_list_internal NBR_PRIMS	    l_mem_alloc_reqs.
+    bit_list_internal NBR_PRIMS	    l_mem_alloc_acks.
+    addr_list_internal NBR_PRIMS    l_mem_alloc_addr.
+    // To arbi logic
+    bit_internal a'arbi_add'req.
+    bit_internal a'arbi_add'ack.
+    addr_internal a'arbi_add'i'arg1.
+    addr_internal a'arbi_add'i'arg2.
+    node_internal a'arbi_add'o'res.
+    bit_internal		prim'mem_read'req.
+    bit_internal		prim'mem_read'ack.
+    addr_internal		prim'mem_read'i'p.
+    node_internal		prim'mem_read'o'dout.
+    bit_internal		prim'mem_write'req.
+    bit_internal		prim'mem_write'ack.
+    addr_internal		prim'mem_write'i'p.
+    node_internal		prim'mem_write'i'din.
+    bit_internal		prim'mem_alloc'req.
+    bit_internal		prim'mem_alloc'ack.
+    addr_internal		prim'mem_alloc'o'p.
+    bit_internal		arbi'mem_read'req.
+    bit_internal		arbi'mem_read'ack.
+    addr_internal		arbi'mem_read'i'p.
+    node_internal		arbi'mem_read'o'dout.
+    bit_internal		arbi'mem_write'req.
+    bit_internal		arbi'mem_write'ack.
+    addr_internal		arbi'mem_write'i'p.
+    node_internal		arbi'mem_write'i'din.
+    bit_internal		arbi'mem_alloc'req.
+    bit_internal		arbi'mem_alloc'ack.
+    addr_internal		arbi'mem_alloc'o'p.
+    bit_internal		a'arbi_add'i'subtract.
+    //
+    bit_internal a'add_sub'req.
+    bit_internal a'add_sub'ack.
+    bit_internal a'add_sub'i'subtract.
+    addr_internal a'add_sub'i'arg1.
+    addr_internal a'add_sub'i'arg2.
+    node_internal a'add_sub'o'res.
+    //
+    bit_internal a'add'add_sub'req.
+    bit_internal a'add'add_sub'ack.
+    bit_internal a'add'add_sub'i'subtract.
+    addr_internal a'add'add_sub'i'arg1.
+    addr_internal a'add'add_sub'i'arg2.
+    node_internal a'add'add_sub'o'res.
+    //
+    bit_internal a'sub'add_sub'req.
+    bit_internal a'sub'add_sub'ack.
+    bit_internal a'sub'add_sub'i'subtract.
+    addr_internal a'sub'add_sub'i'arg1.
+    addr_internal a'sub'add_sub'i'arg2.
+    node_internal a'sub'add_sub'o'res.
+    //
+    let get_arg i = el i (rev arg_addrs) in
+    CELL "primitive_exe" (
+	// Compute a selection list
+	  (map2 (\p.\sel. sel <- ((fst p) '=' op)) prim_l sels)
+	// Send top-level signal to suitable unit
+	@ (msplit req sels l_reqs)
+	@ (msplit prim'mem_read'ack sels l_mem_read_acks)
+	@ (msplit prim'mem_read'o'dout sels l_mem_read_dout)
+	@ (msplit prim'mem_write'ack sels l_mem_write_acks)
+	@ (msplit prim'mem_alloc'ack sels l_mem_alloc_acks)
+	@ (msplit prim'mem_alloc'o'p sels l_mem_alloc_addr)
+	@ [
+	    // Combine all local signals to top-level outputs
+	      CASE ack (zip sels l_acks) '0
+	    , CASE prim'mem_read'req    (zip sels l_mem_read_reqs) '0
+	    , CASE prim'mem_read'i'p    (zip sels l_mem_read_addr) '0
+	    , CASE prim'mem_write'req   (zip sels l_mem_write_reqs) '0
+	    , CASE prim'mem_write'i'p   (zip sels l_mem_write_addr) '0
+	    , CASE prim'mem_write'i'din (zip sels l_mem_write_din) '0
+	    , CASE prim'mem_alloc'req   (zip sels l_mem_alloc_reqs) '0
+	    , CASE redex_result      (zip sels l_results) '0
+	    //
+	    // Now instantiate the individual units
+	    , add_unit clk reset (ADD l_reqs) (ADD l_acks)
+			(get_arg 1) (get_arg 2) (ADD l_results)
+			a'add'add_sub'req a'add'add_sub'ack
+			a'add'add_sub'i'subtract
+			a'add'add_sub'i'arg1 a'add'add_sub'i'arg2
+			a'add'add_sub'o'res
+	    , (ADD l_mem_write_reqs) <- '0
+	    , (ADD l_mem_alloc_reqs) <- '0
+	    //
+	    , sub_unit clk reset (SUB l_reqs) (SUB l_acks)
+			(get_arg 1) (get_arg 2) (SUB l_results)
+			a'sub'add_sub'i'subtract
+			a'sub'add_sub'i'arg1 a'sub'add_sub'i'arg2
+			a'sub'add_sub'o'res
+	    , (SUB l_mem_write_reqs) <- '0
+	    , (SUB l_mem_alloc_reqs) <- '0
+	    //
+//	    , add_sub_unit clk reset 
+//			a'add_sub'req a'add_sub'ack
+//			a'add_sub'i'subtract
+//			a'add_sub'i'arg1 a'add_sub'i'arg2
+//			a'add_sub'o'res
+//
+//%%%%%%%
+//
+//			(ADD l_mem_read_reqs) (ADD l_mem_read_acks)
+//			(ADD l_mem_read_addr) (ADD l_mem_read_dout)
+//			(ADD l_mem_write_reqs) (ADD l_mem_write_acks)
+//			(ADD l_mem_write_addr) (ADD l_mem_write_din)
+//			(ADD l_mem_alloc_reqs) (ADD l_mem_alloc_acks)
+//			(ADD l_mem_alloc_addr)
+//			a'arbi_add'req a'arbi_add'ack
+//			a'arbi_add'i'arg1 a'arbi_add'i'arg2 a'arbi_add'o'res
+//%%%%
+//
+//	    //
+	    , mul_unit clk reset (MUL l_reqs) (MUL l_acks)
+			(get_arg 1) (get_arg 2) (MUL l_results)
+			(MUL l_mem_read_reqs) (MUL l_mem_read_acks)
+			(MUL l_mem_read_addr) (MUL l_mem_read_dout)
+	    , (MUL l_mem_write_reqs) <- '0
+	    , (MUL l_mem_alloc_reqs) <- '0
+	    //
+	    , div_mod_unit clk reset (DIVMOD l_reqs) (DIVMOD l_acks)
+			(get_arg 1) (get_arg 2) (DIVMOD l_results)
+			(DIVMOD l_mem_read_reqs) (DIVMOD l_mem_read_acks)
+			(DIVMOD l_mem_read_addr) (DIVMOD l_mem_read_dout)
+			(DIVMOD l_mem_write_reqs) (DIVMOD l_mem_write_acks)
+			(DIVMOD l_mem_write_addr) (DIVMOD l_mem_write_din)
+			(DIVMOD l_mem_alloc_reqs) (DIVMOD l_mem_alloc_acks)
+			(DIVMOD l_mem_alloc_addr)
+	    , eq_unit clk reset (EQ l_reqs) (EQ l_acks)
+			(get_arg 1) (get_arg 2) (EQ l_results)
+			(EQ l_mem_read_reqs) (EQ l_mem_read_acks)
+			(EQ l_mem_read_addr) (EQ l_mem_read_dout)
+	    , (EQ l_mem_write_reqs) <- '0
+	    , (EQ l_mem_alloc_reqs) <- '0
+	    //
+	    , neq_unit clk reset (NEQ l_reqs) (NEQ l_acks)
+			(get_arg 1) (get_arg 2) (NEQ l_results)
+			(NEQ l_mem_read_reqs) (NEQ l_mem_read_acks)
+			(NEQ l_mem_read_addr) (NEQ l_mem_read_dout)
+	    , (NEQ l_mem_write_reqs) <- '0
+	    , (NEQ l_mem_alloc_reqs) <- '0
+	    //
+	    , arbi clk reset a'arbi_add'req a'arbi_add'ack
+		    a'arbi_add'i'subtract
+		    a'arbi_add'i'arg1 a'arbi_add'i'arg2 a'arbi_add'o'res
+		    arbi'mem_read'req   arbi'mem_read'ack
+		    arbi'mem_read'i'p   arbi'mem_read'o'dout
+		    arbi'mem_write'req  arbi'mem_write'ack
+		    arbi'mem_write'i'p  arbi'mem_write'i'din
+		    arbi'mem_alloc'req  arbi'mem_alloc'ack
+		    arbi'mem_alloc'o'p
+	    //
+	    , fork_mem_read clk reset
+		    a'mem_read'req   a'mem_read'ack
+		    a'mem_read'i'p   a'mem_read'o'dout
+		    prim'mem_read'req   prim'mem_read'ack
+		    prim'mem_read'i'p   prim'mem_read'o'dout
+		    arbi'mem_read'req   arbi'mem_read'ack
+		    arbi'mem_read'i'p   arbi'mem_read'o'dout
+	    , fork_mem_write clk reset
+		    a'mem_write'req  a'mem_write'ack
+		    a'mem_write'i'p  a'mem_write'i'din
+		    prim'mem_write'req  prim'mem_write'ack
+		    prim'mem_write'i'p  prim'mem_write'i'din
+		    arbi'mem_write'req  arbi'mem_write'ack
+		    arbi'mem_write'i'p  arbi'mem_write'i'din
+	    , fork_alloc clk reset
+		    a'mem_alloc'req  a'mem_alloc'ack
+		    a'mem_alloc'o'p
+		    prim'mem_alloc'req  prim'mem_alloc'ack
+		    prim'mem_alloc'o'p
+		    arbi'mem_alloc'req  arbi'mem_alloc'ack
+		    arbi'mem_alloc'o'p
+	    // Fork calls from add_unit and sub_unit to add_sub_unit
+	    , a'add_sub'req <- a'add'add_sub'req '|' a'sub'add_sub'req
+	    , a'add'add_sub'ack <-
+		    (IF a'add'add_sub'req THEN a'add_sub'ack ELSE '0)
+	    , a'sub'add_sub'ack <-
+		    (IF a'sub'add_sub'req THEN a'add_sub'ack ELSE '0)
+	    , a'add_sub'i'subtract <-
+		    a'add'add_sub'i'subtract '|' a'sub'add_sub'i'subtract
+	    , a'add_sub'i'arg1 <-
+		    (IF  a'add'add_sub'req THEN a'add'add_sub'i'arg1
+					   ELSE a'sub'add_sub'i'arg1)
+	    , a'add_sub'i'arg2 <-
+		    (IF  a'add'add_sub'req THEN a'add'add_sub'i'arg2
+					   ELSE a'sub'add_sub'i'arg2)
+	    , a'add'add_sub'o'res <-
+		    (IF  a'add'add_sub'req THEN a'add_sub'o'res ELSE '0)
+	    , a'sub'add_sub'o'res <-
+		    (IF  a'sub'add_sub'req THEN a'add_sub'o'res ELSE '0)
+    ]
+);
+
+
+let get_prim_arity =
+    primitive_input	a'get_prim_arity'i'pfn.
+    arity_output	a'get_prim_arity'o'cnt.
+    CELL "get_comb_arity:" [
+	let mk_cond (c,args) =
+	    ((a'get_prim_arity'i'pfn '=' c), ''args)
+	in
+	CASE a'get_prim_arity'o'cnt (map mk_cond prim_l) '0
+];
+
+
+let primitive_unit =
+    bit_input		clk reset.
+    // get_prim_arity
+    primitive_input	a'get_prim_arity'i'pfn.
+    arity_output	a'get_prim_arity'o'cnt.
+    // set_prim
+    bit_input		a'set_prim'req.
+    bit_output		a'set_prim'ack.
+    primitive_input	a'set_prim'i'prim.
+    // run_prim
+    bit_input		a'run_prim'req.
+    bit_output		a'run_prim'ack.
+    node_output		a'run_prim'o'res.
+    // Interface to arg_unit
+    addr_list_input	arg_addrs.
+    // Memory interface
+    bit_output		a'mem_read'req.
+    bit_input		a'mem_read'ack.
+    addr_output		a'mem_read'i'p.
+    node_input		a'mem_read'o'dout.
+    //
+    bit_output		a'mem_write'req.
+    bit_input		a'mem_write'ack.
+    addr_output		a'mem_write'i'p.
+    node_output		a'mem_write'i'din.
+    //
+    bit_output		a'mem_alloc'req.
+    bit_input		a'mem_alloc'ack.
+    addr_input		a'mem_alloc'o'p.
+    // ---------------------------------------------------------
+    // Internal
+    //
+    primitive_internal		    cur_primitive.
+    CELL "primitive_unit" [
+	  // get_prim_arity
+	  get_prim_arity a'get_prim_arity'i'pfn a'get_prim_arity'o'cnt
+	  // set_prim
+	,  re_ff_en_reset clk a'set_prim'req reset
+		a'set_prim'i'prim cur_primitive
+	, a'set_prim'ack <- a'set_prim'req
+	  // run_prim
+	, primitive_exe clk reset
+	    a'run_prim'req a'run_prim'ack cur_primitive arg_addrs
+	    a'run_prim'o'res
+	    a'mem_read'req a'mem_read'ack a'mem_read'i'p a'mem_read'o'dout
+	    a'mem_write'req a'mem_write'ack a'mem_write'i'p a'mem_write'i'din
+	    a'mem_alloc'req a'mem_alloc'ack a'mem_alloc'o'p
+];
+
+end_abstype primitive_unit;
+
+#ifdef SIMULATION
+
+let p = primitive_unit 'clk 'reset
+	'a'get_prim_arity'i'pfn 'a'get_prim_arity'o'cnt
+	'a'set_prim'req 'a'set_prim'ack 'a'set_prim'i'prim
+	'a'run_prim'req 'a'run_prim'ack 'a'run_prim'o'res
+	['a1, 'a2, 'a3, 'a4]
+	'a'mem_read'req 'a'mem_read'ack 'a'mem_read'i'p 'a'mem_read'o'dout
+	'a'mem_write'req 'a'mem_write'ack 'a'mem_write'i'p 'a'mem_write'i'din
+	'a'mem_alloc'req 'a'mem_alloc'ack 'a'mem_alloc'o'p
+;
+
+STE_debug (pexlif2fsm p);
+
+#endif

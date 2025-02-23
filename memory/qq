@@ -1,0 +1,41 @@
+cload (DIR^"types.fl");
+
+
+BUNDLE "B_mem_get_heap"
+        [("req", "bit")]
+        [("ack", "bit"), ("addr", "addr")]
+;
+
+BUNDLE "B_set_top_of_heap"
+        [("req", "bit"), ("addr", "addr")]
+        [("ack", "bit")]
+;
+
+BUNDLE "B_get_top_addr"
+        []
+        [("addr", "addr")]
+;
+
+let heap_unit =
+    bit_input		    clk.
+    bit_input		    reset.
+    B_set_top_of_heap_input S_set_top_of_heap.
+    B_get_top_addr_input    S_get_top_addr.
+    B_mem_get_heap_input	    S_mem_get_heap.
+    //
+    addr_internal	    top snapshot_top next.
+    //
+    CELL "heap_unit" [
+	next <- top '+' '1,
+	STATE clk top [
+	    (reset,			'0),
+	    (S_set_top_of_heap-->req,	S_set_top_of_heap-->addr),
+	    (S_mem_get_heap-->req,	next)
+	],
+	S_get_top_addr-->addr <- top,
+	S_mem_get_heap-->addr <- next,
+	S_set_top_of_heap-->ack <- S_set_top_of_heap-->req,
+	S_mem_get_heap-->ack <- S_mem_get_heap-->req
+];
+
+create_default_version heap_unit;

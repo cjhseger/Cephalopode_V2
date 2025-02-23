@@ -1,0 +1,85 @@
+#include "primitives.binc"
+
+// Actions
+action arb_rf_length:ArbRfLength provided by external via std_proto;
+action arb_rf_new:ArbRfNew provided by external via std_proto;
+action arb_rf_alloc:ArbRfAlloc provided by external via std_proto;
+action arb_rf_get:ArbRfGet[2] provided by external via std_proto;
+action arb_rf_set:ArbRfSet provided by external via std_proto;
+action arb_rf_pop:ArbRfPop provided by external via std_proto;
+action arb_rf_free:ArbRfFree provided by external via std_proto;
+//
+action int2arbi:Int2Arbi provided by external via std_proto;
+action arbi2int:Arbi2Int provided by external via std_proto;
+action arb_trim:ArbiTrim provided by external via std_proto;
+
+// Macros
+define ZERO	 = (fl "{'0::Aint}");
+define ONE	 = (fl "{'1::Aint}");
+define MINUS_ONE = (fl "{'-1::Aint}");
+define MSB	 = (fl "\\z. hd (tobits z)");
+
+
+module arbi_add;
+protocol std_proto;
+
+function main : arg1:Addr -> arg2:Addr -> res:Node
+{
+    var index	x, y, z;
+    var Aint	wx, wy, wz;
+    var alen	lx, ly, lz, i;
+    var Aint	carry;
+    var bit	mx, my, mz, oflw;
+
+    x = do int2arbi arg1;
+    y = do int2arbi arg2;
+    lx = do arb_rf_length x;
+    ly = do arb_rf_length y;
+
+    if(lx < ly) {
+	/* swap them */
+	(x,lx,y,ly) = (y,ly,x,lx);
+    }
+    z = do arb_rf_new;
+    do arb_rf_alloc z (lx+1);
+    carry = ZERO;
+    for(i = 0; i < ly; i++) {
+	wx = do arb_rf_get x i;
+	wy = do arb_rf_get y i;
+        wz = wx + wy + carry;
+	do arb_rf_set z i wz;
+	mx = MSB(wx);
+	my = MSB(wy);
+	mz = MSB(wz);
+        carry = if ((mx & my) | ((mx | my) & ~mz)) then ONE else ZERO;
+    }
+    if(lx > ly) {
+        /* sign extend y, and continue propagating carries  */
+	wy = if ( MSB(wy) ) then MINUS_ONE else ZERO;
+	while( i < lx ) {
+	    wx = do arb_rf_get x i;
+	    wz = wx + wy + carry;
+	    do arb_rf_set z i wz;
+	    mx = MSB(wx);
+	    my = MSB(wy);
+	    mz = MSB(wz);
+	    carry = if ((mx & my) | ((mx | my) & ~mz)) then ONE else ZERO;
+	    i = i+1;
+        }
+    }
+    /* check for overflow */
+    mx = MSB(wx);
+    my = MSB(wy);
+    mz = MSB(wz);
+    oflw = mx & my & ~mz | ~mx & ~my & mz;
+    if( oflw ) {
+	do arb_rf_set z lx (if mz then ZERO else MINUS_ONE);
+    } else {
+	do arb_rf_pop z;
+	do arb_trim z;
+    }
+    res = do arbi2int z;
+    do arb_rf_free;
+    return;
+}
+

@@ -1,0 +1,49 @@
+#include "../cephalopode_types.binc"
+#include "reduction_types.binc"
+
+action mem_unit:MemUnit provided by external via mem_proto;
+action uRAM_read:uRAMRead provided by external via std_proto;
+
+action record_status:RecordStatus provided by external via std_proto;
+
+action stack_get_available:STACK_get_available provided by external
+			    via comb_proto
+;
+
+action stack_get_last_addr:STACK_stack_get_last_addr provided by external
+			    via comb_proto
+;
+
+action stack_refill_last:STACK_refill_last provided by external via std_proto;
+
+action stack_read:STACK_read provided by external via std_proto;
+
+
+module stack_get_args;
+protocol std_proto;
+
+function main : cnt:Int -> (redex:Addr, a1:Addr, a2:Addr, a3:Addr,
+                                      a4:Addr, a5:Addr, a6:Addr)
+{
+    var Addr	last;
+    var Node	n;
+    var Int	avail;
+
+    if( cnt > 6 ) {
+	do record_status ILLEGAL_NBR_OF_ARGS_REQUESTED;
+    }
+    avail = do stack_get_available;
+    if( avail < cnt ) {
+	// Need to refill the stack
+	last = do stack_get_last_addr;
+	while( avail < cnt ) {
+	    last = do uRAM_read last;
+	    n = do_mem_read last;
+	    do stack_refill_last last (n-->right);
+	    avail++;
+	}
+    }
+    // Now return the requested adresses
+     (redex, a1, a2, a3, a4, a5, a6) = do stack_read cnt;
+    return;
+}

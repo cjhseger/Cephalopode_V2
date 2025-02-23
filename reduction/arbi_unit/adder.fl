@@ -1,0 +1,32 @@
+cload (DIR^"../../types.fl");
+
+BUNDLE "B_adder"
+        [("arg1", "Aint"), ("arg2", "Aint"), ("cin", "bit")]
+        [("res", "Aint")]
+;
+
+let adder =
+    bit_input               clk.
+    bit_input               reset.
+    B_adder_input	    S_adder.
+    //
+    Aint_internal	    a b sum.
+    Eint_internal	    e_a e_b e_r.
+    bit_internal	    carry_in.
+    //
+    CELL "adder" [
+	a <- S_adder-->arg1,
+	b <- S_adder-->arg2,
+	carry_in <- S_adder-->cin,
+	e_a <- frombits (tobits a @ [carry_in]),
+	e_b <- frombits (tobits b @ [carry_in]),
+	e_r <- e_a '+' e_b,
+	sum <- frombits (butlast (tobits e_r)),
+	S_adder-->res <- sum
+];
+
+create_default_version adder;
+
+//STE_debug (pexlif2fsm adder);
+//IDV adder "DB_QQ" [];
+//system "'/bin/rm -rf DB_QQ";

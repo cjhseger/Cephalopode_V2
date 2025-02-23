@@ -1,0 +1,134 @@
+cload "mk_rom3.fl";
+
+forward_declare {dot :: (int list) -> (int list) -> int};
+let dot l1 l2 =
+    (l1 = []) OR (l2 = []) => 0 |
+    ((hd l1)*(hd l2)) + (dot (tl l1) (tl l2))
+;
+
+//let xs = [24, 23,  4, 78, 84, 33, 60, 8,  11, 86];
+//let ys = [9,  82, 38, 44, 55, 23,  7, 64, 59,  5];
+let xs = [24, 23];
+let ys = [9,  82];
+let answer = 2102;
+let main =  (dot xs ys) = answer;
+mk_cephalopode_rom (sprintf "_Dot2_M%d.rom" (log2 MEM_SIZE)) "main" T;
+
+
+forward_declare {fac:: int->int};
+let fac n = n=1 => 1 | n * fac (n-1);
+let answer = 720;
+let main = (fac 6) = answer;
+mk_cephalopode_rom (sprintf "_fac6_M%d.rom" (log2 MEM_SIZE)) "main" T;
+
+
+
+forward_declare {mul1 :: (int list) -> (int list) -> int};
+let mul1 mr v =
+    mr = [] => 0 |
+    ((hd mr)*(hd v)) + (mul1 (tl mr) (tl v))
+;
+forward_declare {mmult :: ((int list) list) -> (int list) -> (int list)};
+let mmult M v =
+    M = [] => [] |
+    (mul1 (hd M) v):(mmult (tl M) v)
+;
+forward_declare {ReLU :: (int list) -> (int list)};
+let ReLU v = 
+    v = [] => [] |
+    let h = hd v in
+    (h >= 0 => h | 0):(ReLU (tl v))
+;
+let NN_stage M v = ReLU (mmult M v);
+forward_declare
+    {NeuralNetwork :: (((int list) list) list) -> (int list) -> (int list)}
+;
+let NeuralNetwork Ms vec =
+    Ms = [] => vec |
+    NeuralNetwork (tl Ms) (NN_stage (hd Ms) vec)
+;
+let M = [
+    [
+	[1,-4,9,1],
+	[4,0,-3,6],
+	[5,-2,4,2]
+    ],
+    [
+	[-9,1,5],
+	[2,-1,9],
+	[8,3,-4],
+	[1,-2,-8]
+    ],
+    [
+	[5,3,-5,1]
+    ]
+];
+let answer = 0;
+let main = (hd (NeuralNetwork M [2,1,3,4])) = answer;
+mk_cephalopode_rom (sprintf "_NN_M%d.rom" (log2 MEM_SIZE)) "main" T;
+
+
+
+forward_declare {map :: (*a -> *b) -> (*a list) -> (*b list)};
+let map fn l = l = [] => [] | (fn (hd l)):(map fn (tl l));
+let inc x = x+1;
+let sum = map inc [1,2,3,4];
+mk_cephalopode_rom (sprintf "_sum%d.rom" (log2 MEM_SIZE)) "sum" T;
+
+
+
+let main = mmult [[1,4],[3,4],[3,2]] [1,2,3];
+mk_cephalopode_rom (sprintf "_mmult_M%d.rom" (log2 MEM_SIZE)) "main" T;
+
+
+
+
+
+
+
+quit;
+
+
+DBG_pre_process "main";
+DBG_rearrange "main";
+
+
+let xs = [24, 23, 4, 78, 84, 33, 60, 8, 11, 86, 96, 16, 19, 4, 10, 89, 69, 87, 50, 90, 67, 35, 66, 30, 27, 86, 75, 53, 74, 35, 57, 63, 84, 82, 89, 45, 10, 41, 78, 14, 62, 75, 80, 42, 24, 31, 2, 93, 34, 14, 90, 28, 47, 21, 42, 54, 7, 12, 100, 18, 89, 28, 5, 73, 81, 68, 77, 87, 9, 3, 15, 81, 24, 77, 73, 15, 50, 11, 47, 14, 4, 77, 2, 24, 23, 91, 15, 61, 26, 93, 7, 86, 2, 69, 54, 79, 12, 33, 8, 28];
+let ys = [9, 82, 38, 44, 55, 23, 7, 64, 59, 5, 76, 12, 89, 50, 25, 33, 45, 93, 60, 72, 21, 89, 86, 26, 98, 7, 100, 86, 20, 20, 43, 67, 32, 15, 76, 56, 85, 22, 1, 60, 87, 52, 72, 65, 39, 83, 45, 49, 84, 32, 19, 71, 88, 1, 58, 94, 10, 42, 94, 5, 69, 35, 17, 30, 97, 61, 45, 78, 36, 86, 45, 75, 81, 79, 16, 91, 39, 49, 95, 53, 83, 10, 0, 76, 24, 89, 42, 20, 30, 28, 81, 57, 48, 90, 86, 72, 53, 4, 51, 89];
+let answer = 251827;
+
+
+//dot xs ys;
+
+let xs = [24,23,4,78,84,33,60,8,11,86,96,16,19,4,10,89,69,87,50,90,67,35,66,30,27,86,75,53,74,35,57,63,84,82,89,45,10,41,78,14,62,75,80,42,24,31,2,93,34,14];
+let ys = [9,-82,38,-44,55,-23,7,-64,59,-5,76,-12,89,-50,25,-33,45,-93,60,-72,21,-89,86,-26,98,-7,100,-86,20,-20,43,-67,32,-15,76,-56,85,-22,1,-60,87,-52,72,-65,39,-83,45,-49,84,-32];
+let answer = 9380;
+let main =  (dot xs ys) = answer;
+mk_cephalopode_rom (sprintf "_Dot50(%d).rom" (log2 MEM_SIZE)) "main" T;
+
+
+
+let xs = [24,23,4,78,84,33,60,8,11,86,96,16,19,4,10,89,69,87,50,90,67,35,66,30,27,86,75,53,74,35];
+let ys = [9,82,38,44,55,23,7,64,59,5,76,12,89,50,25,33,45,93,60,72,21,89,86,26,98,7,100,86,20,20];
+let answer = 74782;
+let main =  (dot xs ys) = answer;
+mk_cephalopode_rom (sprintf "_Dot30(%d).rom" (log2 MEM_SIZE)) "main" T;
+
+
+
+let xs = [24,23,4,78,84,33,60,8,11,86,96,16,19,4,10,89,69,87,50,90,67,35,66,30,27,86,75,53,74,35,57,63,84,82,89,45,10,41,78,14];
+let ys = [9,82,38,44,55,23,7,64,59,5,76,12,89,50,25,33,45,93,60,72,21,89,86,26,98,7,100,86,20,20,43,67,32,15,76,56,85,22,1,60];
+let answer = 97326;
+let main =  (dot xs ys) = answer;
+mk_cephalopode_rom (sprintf "_Dot40(%d).rom" (log2 MEM_SIZE)) "main" T;
+
+
+dot xs ys;
+
+
+let xs = [24,23,4,78,84,33,60,8,11,86,96,16,19,4,10,89,69,87,50,90,67,35,66,30,27,86,75,53,74,35,57,63,84,82,89,45,10,41,78,14,62,75,80,42,24,31,2,93,34,14];
+let ys = [9,82,38,44,55,23,7,64,59,5,76,12,89,50,25,33,45,93,60,72,21,89,86,26,98,7,100,86,20,20,43,67,32,15,76,56,85,22,1,60,87,52,72,65,39,83,45,49,84,32];
+let answer = 126570;
+let main =  (dot xs ys) = answer;
+mk_cephalopode_rom (sprintf "_Dot50(%d).rom" (log2 MEM_SIZE)) "main" T;
+

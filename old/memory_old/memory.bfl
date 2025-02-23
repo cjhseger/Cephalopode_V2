@@ -1,0 +1,175 @@
+//set_font font_largest;
+cload (DIR^"../types.fl");
+cload (DIR^"ctrl_ram.fl");
+cload (DIR^"mark_ram.fl");
+cload (DIR^"rom.fl");
+cload (DIR^"memory_fsm.fsm.fl");
+cload (DIR^"snapshot_fsm.fsm.fl");
+
+create_default_version memory_fsm;
+
+TYPE "eaddr" (ADDR_SZ+1);
+
+let addr2eaddr {version::bit} {addr::addr} =
+    {(frombits ((tobits addr)@[version])) :: eaddr}
+;
+
+let rom_addr2addr {ra::rom_addr} =
+    let a_sz = get_hw_type_size "addr" in
+    let r_sz = get_hw_type_size "rom_addr" in
+    r_sz > a_sz => (frombits (lastn a_sz (tobits ra))) |
+    {(ZX ra) :: addr}
+;
+
+MEMORY "RAM" [(2*MEM_SIZE, "eaddr")] "node";
+let RAM_LATENCY = 2;		// Phases of latency for main memory access
+
+let data_RAM =
+    bit_input   rw.
+    eaddr_input	addr.
+    node_input  inp.
+    node_output out.
+    //
+    bit_internal    addr_rdy rw_rdy inp_rdy rd_rdy wr_rdy.
+    RAM_internal    ram tmp_new_ram new_ram.
+    internal        local_rd_data.
+    CELL "RAM" [
+        is_stable RAM_LATENCY addr addr_rdy,
+        is_stable RAM_LATENCY rw rw_rdy,
+        is_stable RAM_LATENCY inp inp_rdy,
+        rd_rdy <- addr_rdy '&' rw_rdy,
+        Read_RAM ram addr local_rd_data,
+        out <- (IF (rd_rdy '&' rw) THEN local_rd_data ELSE 'X),
+        Write_RAM ram addr inp tmp_new_ram,
+        wr_rdy <- rd_rdy '&' inp_rdy,
+        new_ram <- (IF (wr_rdy '&' '~' rw) THEN tmp_new_ram ELSE ram),
+        ram <: new_ram
+];
+
+ENUM "mode" ["ORDINARY", "SNAPSHOT"];
+
+load (DIR^"../bundles.fl");
+
+let memory =
+    bit_input		    clk.
+    bit_input		    reset.
+    B_mem_init_input	    S_mem_init.
+    B_mem_read_input	    S_mem_read.
+    B_mem_write_input	    S_mem_write.
+    B_snap_prepare_input    S_snap_prepare.
+    B_snap_take_input	    S_snap_take.
+    B_snap_read_input	    S_snap_read.
+    B_mark_get_input	    S_mark_get.
+    B_mark_set_input	    S_mark_set.
+    B_snap_ready_input	    S_snap_ready.
+    B_mem_get_heap_input    S_mem_get_heap.
+    B_get_top_addr_input    S_get_top_addr.
+    //
+    // Internal signals
+    //
+    addr_internal	top_of_heap snapshot_top_of_heap.
+    node_internal	ldout.
+    addr_internal	laddr.
+    bit_internal	cdo_init_ack cdo_init_req cdo_snap_ack cdo_snap_req.
+    ctrl_internal	crd_out cwr_inp.
+    bit_internal	crd_ack crd_req cwr_ack cwr_req.
+    bit_internal	do_rd_ram do_wr_ram1 do_wr_ram2 do_wr_ram.
+    eaddr_internal	eaddr.
+    bit_internal	in_smode instrs_done.
+    bit_internal	is_init_op is_rd_op is_snap_rd_op.
+    bit_internal	is_wr_op.
+    mode_internal	last_fsm mode.
+    bit_internal	last_ordinary.
+    bit_internal	mdo_init_ack mdo_init_req.
+    rom_addr_internal	init_state_cnt last_init_state_cnt pgm_size.
+    bit_internal	rd_ram_rdy rd_rom rd_rom_done.
+    node_internal	rom_data.
+    bit_internal	save_same_live.
+    bit_internal	store_cnt wr_ram_rdy.
+    bit_internal	inc_cp_cnt.
+    bit_internal	selection.
+    bit_internal	take_snapshot.
+    node_internal	ram_din.
+    bit_internal	record_top_of_heap.
+    //
+    CELL "memory"
+	[ ROM "flash" init_state_cnt rom_data
+	, data_RAM ('~' do_wr_ram) eaddr ram_din ldout
+	, do_wr_ram <- do_wr_ram1 '|' do_wr_ram2
+	, ram_din <- (IF is_init_op THEN rom_data ELSE S_mem_write-->din)
+	, (S_mem_read-->dout) <- ldout
+	, (S_snap_read-->dout) <- ldout
+	, ctrl_RAM clk reset
+		   cdo_init_req cdo_init_ack
+		   crd_req laddr crd_ack crd_out
+		   cwr_req laddr cwr_inp cwr_ack
+		   cdo_snap_req cdo_snap_ack
+	, mark_RAM clk reset
+		   mdo_init_req mdo_init_ack
+		   (S_mark_get-->req) (S_mark_get-->p) (S_mark_get-->ack) (S_mark_get-->m)
+		   (S_mark_set-->req) (S_mark_set-->p) (S_mark_set-->m) (S_mark_set-->ack)
+	, Moore_FSM "last_fsm" clk last_fsm (reset, ORDINARY)
+		[
+		    ORDINARY --- is_snap_rd_op --- SNAPSHOT,
+		    SNAPSHOT --- is_rd_op	--- ORDINARY,
+		    SNAPSHOT --- is_wr_op	--- ORDINARY
+		]
+	, save_same_live <- crd_out-->live '=' crd_out-->saved
+	, cwr_inp <- (crd_out<--live ? ('~' (crd_out-->saved)))
+	, last_ordinary <- is_ORDINARY last_fsm
+        , re_ff_en clk inc_cp_cnt init_state_cnt last_init_state_cnt
+	, CASE laddr [
+		(is_init_op,	 rom_addr2addr last_init_state_cnt),
+		(is_rd_op,	 (S_mem_read-->p)),
+		(is_wr_op,	 (S_mem_write-->p)),
+		(is_snap_rd_op,  (S_snap_read-->p))
+		
+	    ] 'X
+	, CASE selection [
+		(is_init_op,	    '0),
+		(do_wr_ram2,	    '~' (crd_out-->saved)),
+		(is_snap_rd_op,	    crd_out-->saved)
+	    ] (crd_out-->live)
+	, eaddr <- addr2eaddr selection laddr
+	, STATE clk init_state_cnt [
+	    (reset,  '0),
+	    (inc_cp_cnt, init_state_cnt '+' '1)
+	  ]
+	, instrs_done <- init_state_cnt '>' pgm_size
+	, STATE clk top_of_heap [
+		(reset,			'0),
+		(record_top_of_heap ,	(rom_addr2addr init_state_cnt)),
+		(S_mem_get_heap-->req,  (top_of_heap '+' '1))
+	    ]
+	, re_ff_en clk take_snapshot top_of_heap (S_get_top_addr-->addr)
+	, S_mem_get_heap-->ack <- S_mem_get_heap-->req
+	, S_mem_get_heap-->addr <- top_of_heap
+	, store_cnt <- is_init_op '&' rd_rom_done '&' (init_state_cnt '=' '0)
+	, re_ff_en_reset clk store_cnt reset (node2rom_addr rom_data) pgm_size
+	, is_stable RAM_LATENCY do_rd_ram rd_ram_rdy
+	, is_stable RAM_LATENCY do_wr_ram wr_ram_rdy
+	, is_stable ROM_LATENCY rd_rom rd_rom_done
+	, memory_fsm mem_init_req->(S_mem_init-->req)
+		     read_req->(S_mem_read-->req)
+		     snap_read_req->(S_snap_read-->req)
+		     write_req->(S_mem_write-->req)
+		     mem_init_ack->(S_mem_init-->ack)
+		     read_ack->(S_mem_read-->ack)
+		     snap_read_ack->(S_snap_read-->ack)
+		     write_ack->(S_mem_write-->ack)
+	//
+	, snapshot_fsm clk reset
+		// inputs
+		cdo_snap_ack (S_snap_prepare-->req)
+		// outputs
+		cdo_snap_req (S_snap_prepare-->ack) (S_snap_ready-->ready)
+	, take_snapshot <- (S_snap_take-->req) '&' (S_snap_ready-->ready)
+	, Moore_FSM "mode_fsm" clk mode (reset, ORDINARY) [
+		ORDINARY     --- take_snapshot		--- SNAPSHOT,
+		    SNAPSHOT --- (S_snap_prepare-->req)	--- ORDINARY
+	    ]
+	, (S_snap_take-->ack) <- is_SNAPSHOT mode '&' (S_snap_take-->req)
+	, in_smode <- is_SNAPSHOT mode
+];
+create_default_version memory;
+

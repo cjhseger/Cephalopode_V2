@@ -1,0 +1,50 @@
+cload (DIR^"../types.fl");
+
+// Mutally-exclusive only, speaks ackpulse.
+let fork_checkout =
+    bit_input clk.
+    bit_input reset.
+    //
+    bit_output checkout_req.
+    bit_input checkout_ack.
+    addr_input checkout_freeptr.
+    //
+    bit_input checkout_req0.
+    bit_output checkout_ack0.
+    addr_output checkout_freeptr0.
+    //
+    bit_input checkout_req1.
+    bit_output checkout_ack1.
+    addr_output checkout_freeptr1.
+    //
+    CELL "arb_checkout" [
+        checkout_req <- checkout_req0 '|' checkout_req1,
+        checkout_ack0 <- checkout_req0 '&' checkout_ack,
+        checkout_ack1 <- checkout_req1 '&' checkout_ack,
+        checkout_freeptr0 <- checkout_freeptr,
+        checkout_freeptr1 <- checkout_freeptr
+    ];
+
+// Mutually-exclusive only, speaks ackpulse.
+let fork_checkin =
+    bit_input clk.
+    bit_input reset.
+    //
+    bit_output checkin_req.
+    bit_input checkin_ack.
+    addr_output checkin_freeptr.
+    //
+    bit_input checkin_req0.
+    bit_output checkin_ack0.
+    addr_input checkin_freeptr0.
+    //
+    bit_input checkin_req1.
+    bit_output checkin_ack1.
+    addr_input checkin_freeptr1.
+    //
+    CELL "fork_checkin" [
+        checkin_req <- checkin_req0 '|' checkin_req1,
+        CASE checkin_freeptr [(checkin_req0, checkin_freeptr0), (checkin_req1, checkin_freeptr1)] 'X,
+        checkin_ack0 <- checkin_req0 '&' checkin_ack,
+        checkin_ack1 <- checkin_req1 '&' checkin_ack
+    ];

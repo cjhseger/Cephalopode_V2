@@ -1,0 +1,203 @@
+cload (DIR^"../../types.fl");
+cload (DIR^"../reduction_types.fl");
+
+TYPE "arb_rf_addr" (ARB_RF_CNT+ARB_LEN_BITS);
+
+BUNDLE "B_arb_rf_new"
+        [("clkenb", "bit"), ("req", "bit")]
+        [("ack", "bit"), ("idx", "index")]
+;
+
+BUNDLE "B_arb_rf_length"
+        [("clkenb", "bit"), ("req", "bit"), ("idx", "index")]
+        [("ack", "bit"), ("len", "alen")]
+;
+
+BUNDLE "B_arb_rf_alloc"
+        [("clkenb", "bit"), ("req", "bit"), ("idx", "index"), ("cnt", "alen")]
+        [("ack", "bit")]
+;
+
+BUNDLE "B_arb_rf_get"
+        [("clkenb", "bit"), ("req", "bit"), ("idx", "index"), ("i", "alen")]
+        [("ack", "bit"), ("v", "Aint")]
+;
+
+BUNDLE "B_arb_rf_set"
+        [("clkenb", "bit"), ("req", "bit"), ("idx", "index"), ("i", "alen"), ("v", "Aint")]
+        [("ack", "bit")]
+;
+
+BUNDLE "B_arb_rf_pop"
+        [("clkenb", "bit"), ("req", "bit"), ("idx", "index")]
+        [("ack", "bit")]
+;
+
+BUNDLE "B_arb_rf_push"
+        [("clkenb", "bit"), ("req", "bit"), ("idx", "index"), ("i", "Aint")]
+        [("ack", "bit")]
+;
+
+BUNDLE "B_arb_rf_free"
+        [("clkenb", "bit"), ("req", "bit")]
+        [("ack", "bit")]
+;
+
+let dual_port_regfile =
+    bit_input		clk.
+    bit_input		write1.
+    bit_input		write2.
+    Aint_input		din1.
+    Aint_input		din2.
+    arb_rf_addr_input	waddr1.
+    arb_rf_addr_input	waddr2.
+    arb_rf_addr_input	raddr0.
+    arb_rf_addr_input	raddr1.
+    Aint_output		dout0.
+    Aint_output		dout1.
+    //
+    Aint_list_internal NBR_ARB_REGS regs.
+    bit_list_internal NBR_ARB_REGS  ens.
+    Aint_internal		    din.
+    arb_rf_addr_internal	    waddr.
+    bit_internal		    write.
+    CELL "dual_port_regfile" (
+	(map2 (\en.\reg.  re_ff_en clk en din reg) ens regs) @
+	[
+	    din   <- (IF write1 THEN din1 ELSE din2),
+	    waddr <- (IF write1 THEN waddr1 ELSE waddr2),
+	    write <- write1 '|' write2,
+	    EN_DECODER_list write waddr ens,
+	    SELECT_list regs raddr0 dout0,
+	    SELECT_list regs raddr1 dout1
+	]
+);
+
+
+
+
+
+
+let arb_rf =
+    bit_input		    clk reset.
+    B_arb_rf_new_input	    S_arb_rf_new.
+    B_arb_rf_length_input   S_arb_rf_length.
+    B_arb_rf_alloc_input    S_arb_rf_alloc.
+    B_arb_rf_get_input	    S_arb_rf_get0.
+    B_arb_rf_get_input	    S_arb_rf_get1.
+    B_arb_rf_set_input	    S_arb_rf_set.
+    B_arb_rf_pop_input	    S_arb_rf_pop.
+    B_arb_rf_push_input	    S_arb_rf_push.
+    B_arb_rf_free_input	    S_arb_rf_free.
+    //
+    // Internal
+    //
+    alen_list_internal MAX_ARB_RF	    lengths.
+    arb_rf_addr_list_internal MAX_ARB_RF    bases.
+    arb_rf_addr_internal		    cur_free base_push_addr.
+    alen_internal			    base_push_len.
+    index_internal			    alloc_cnt.
+    arb_rf_addr_internal		    base_addr0 base_addr1 base_wr_addr.
+    arb_rf_addr_internal		    raddr0 raddr1 r_wr_addr r_push_addr.
+    bit_internal			    clken eclk.
+    //
+    CELL "rb_rf" (
+    (map2 (\i.\length. STATE eclk length [
+	    (reset,				'0),
+	    (S_arb_rf_free-->req,		'0),
+	    (S_arb_rf_alloc-->req '&'
+	     (S_arb_rf_alloc-->idx '=' ''i),	S_arb_rf_alloc-->cnt),
+	    (S_arb_rf_push-->req '&' 
+	     (S_arb_rf_push-->idx '=' ''i),	length '+' '1),
+	    (S_arb_rf_pop-->req '&' 
+	     (S_arb_rf_pop-->idx '=' ''i),	length '-' '1)
+	]) ((MAX_ARB_RF-1) downto 0) lengths
+    )
+    @
+    (map2 (\i.\base. STATE eclk base [
+	    (reset,				'0),
+	    (S_arb_rf_free-->req,			'0),
+	    ((S_arb_rf_new-->req '&'
+	     (alloc_cnt '=' ''i)),	cur_free)
+	]) ((MAX_ARB_RF-1) downto 0) bases
+    )
+    @
+    [
+      // Gate clocking
+      clken <- S_arb_rf_new-->clkenb '|' S_arb_rf_length-->clkenb '|'
+	       S_arb_rf_alloc-->clkenb '|' S_arb_rf_get0-->clkenb '|'
+	       S_arb_rf_get1-->clkenb '|' S_arb_rf_set-->clkenb '|'
+	       S_arb_rf_pop-->clkenb '|' S_arb_rf_push-->clkenb '|'
+	       S_arb_rf_free-->clkenb 
+    , clockgate_with_reset clk reset clken eclk
+    //
+    // arb_rf_new
+    //
+    , STATE eclk alloc_cnt [
+    	(reset,		    '0),
+    	(S_arb_rf_free-->req, '0),
+    	(S_arb_rf_new-->req,  alloc_cnt '+' '1)
+        ]
+    , S_arb_rf_new-->idx <- alloc_cnt
+    , S_arb_rf_new-->ack <- S_arb_rf_new-->req
+    //
+    // arb_rf_length
+    //
+    , SELECT_list lengths (S_arb_rf_length-->idx) (S_arb_rf_length-->len)
+    , S_arb_rf_length-->ack <- S_arb_rf_length-->req
+    //
+    // arb_rf_alloc
+    //
+    , STATE eclk cur_free [
+	    (reset,			'0),
+	    (S_arb_rf_free-->req,	'0),
+	    (S_arb_rf_alloc-->req,	cur_free '+' ZX (S_arb_rf_alloc-->cnt)),
+	    (S_arb_rf_push-->req,	cur_free '+' '1)
+	]
+    , S_arb_rf_alloc-->ack <- S_arb_rf_alloc-->req
+    //
+    // arb_rf_get0
+    //
+    , SELECT_list bases (S_arb_rf_get0-->idx) base_addr0
+    , raddr0 <- base_addr0 '+' (ZX (S_arb_rf_get0-->i))
+    , S_arb_rf_get0-->ack <- S_arb_rf_get0-->req
+    //
+    // arb_rf_get1
+    //
+    , SELECT_list bases (S_arb_rf_get1-->idx) base_addr1
+    , raddr1 <- base_addr1 '+' ZX (S_arb_rf_get1-->i)
+    , S_arb_rf_get1-->ack <- S_arb_rf_get1-->req
+    //
+    // arb_rf_set
+    //
+    , SELECT_list bases (S_arb_rf_set-->idx) base_wr_addr
+    , r_wr_addr <- base_wr_addr '+' ZX (S_arb_rf_set-->i)
+    , S_arb_rf_set-->ack <- S_arb_rf_set-->req
+    //
+    // arb_rf_pop
+    //
+    , S_arb_rf_pop-->ack <- S_arb_rf_pop-->req
+    //
+    // arb_rf_push
+    //
+    , SELECT_list bases (S_arb_rf_push-->idx) base_push_addr
+    , SELECT_list lengths (S_arb_rf_push-->idx) base_push_len
+    , r_push_addr <- base_push_addr '+' ZX base_push_len
+    , S_arb_rf_push-->ack <- S_arb_rf_push-->req
+    //
+    // arb_rf_free
+    //
+    , S_arb_rf_free-->ack <- S_arb_rf_free-->req
+    //
+    // RF itself
+    //
+    , "MEM" ::: dual_port_regfile eclk (
+			S_arb_rf_set-->req) (S_arb_rf_push-->req)
+			(S_arb_rf_set-->v) (S_arb_rf_push-->i)
+			r_wr_addr r_push_addr
+			raddr0 raddr1
+		        (S_arb_rf_get0-->v) (S_arb_rf_get1-->v)
+    ]
+);
+create_default_version arb_rf;
+

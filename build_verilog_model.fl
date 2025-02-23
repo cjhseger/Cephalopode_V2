@@ -1,0 +1,45 @@
+//set_font font_larger;
+//let LATCHBASED_CLOCKGATING = T;
+cload "load_cephalopode.fl";
+
+let p = cephalopode;
+
+
+// ROM:
+// i4/i11/i2 ROM with read addres and data out (256 lines of 28 bits).
+
+// RAMs:
+// i4/i10/i3  RAM with r/w, addr, din and dout signals (512 lines of 28 bits)
+// i4/i9/i3  cRAM with r/w, addr, din, and dout (16 lines of 32 bits)
+// i5/i9/i3  mRAM with r/w, addr, din, and dout (8 lines of 32 bits)
+
+let get_behavioral p =
+    letrec find_beh path (PINST name attrs leaf _ _ _ (P_HIER cs)) =
+	(str_is_substr "behavioral_" name) => [path] |
+	flat (map2 (\i.\pp. find_beh (path@[i]) pp) (1 upto (length cs)) cs)
+     /\    find_beh path other = []
+    in
+    find_beh [] p
+;
+
+let p' = blackbox_pexlif p (get_behavioral p);
+
+wtime (p' fseq "blackboxing done");
+
+let p'' = rename_toplevel_pexlif "cephalopode" p';
+
+wtime (p'' fseq "renaming top-level done");
+
+let fp = fopen (sprintf "cephalopode_M%d.v" (log2 MEM_SIZE)) "w";
+safe_pexlif2verilog F fp p'';
+fclose fp;
+
+quit;
+
+
+// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+system "rm -rf DB_dummy";
+
+IDV p'' "DB_dummy" [];
+

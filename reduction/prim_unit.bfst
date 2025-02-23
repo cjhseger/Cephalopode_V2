@@ -1,0 +1,259 @@
+#include "../cephalopode_types.binc"
+#include "reduction_types.binc"
+
+
+action mem_alloc:MemAlloc provided by external via alloc_proto;
+
+action mem_unit:MemUnit provided by external via mem_proto;
+
+action uRAM_read:uRAMRead provided by external via std_proto;
+action uRAM_write:uRAMWrite provided by external via std_proto;
+
+action arbi_unit:
+	    (op:Primitive -> arg1:Addr -> arg2:Addr -> res:Node
+		reading [MEM,ARBRF] writing [MEM,ARBRF])
+	    provided by external via std_proto
+;
+
+action int_alu:
+	    (op:Primitive -> arg1:Int -> arg2:Int -> res:Int
+		reading [] writing [])
+	    provided by external via comb_proto
+;
+
+action misc_unit:
+	    (op:Primitive -> arg1:Addr -> arg2:Addr -> res:Node
+		reading [MEM,ARBRF] writing [MEM,ARBRF])
+	    provided by external via std_proto
+;
+
+
+
+define get_prim_arity = (fl "\\op. get_prim_arity op");
+define ONE	 = (fl "{'1::Int}");
+define ZERO	 = (fl "{'0::Int}");
+
+define Fits_in_INT = ((fl "\\op.\\n1.\\n2. fits_in_INT op n1 n2") ::
+                        Primitive -> Node -> Node ->bit)
+;
+
+
+module prim_unit;
+protocol std_proto;
+
+function main : n:Node -> p:Addr -> up:Addr -> new_p_up:GraphPtr
+{
+    var Node	    cond, tuple, na1, n1, n2, tmp;
+    var Addr	    a1, a2, a3, t1, t2, orig_p;
+    var Arity	    arity;
+    var Primitive   prim;
+
+    orig_p = p;
+    prim = n-->prim;
+    arity = get_prim_arity prim;
+    if( arity >= 1 ) {
+	p = up; n = do_mem_read p; up = do uRAM_read p;
+	a1 = n-->right;
+    }
+    if( arity >= 2 ) {
+	p = up; n = do_mem_read p; up = do uRAM_read p;
+	a2 = n-->right;
+    }
+    if( arity >= 3 ) {
+	p = up; n = do_mem_read p; up = do uRAM_read p;
+	a3 = n-->right;
+    }
+    //
+    // Now perform the primitive operation
+    if(   (prim == P_PLUS)
+	| (prim == P_MINUS)
+	| (prim == P_TIMES)
+	| (prim == P_GT)
+	| (prim == P_GEQ) ) {
+	    // First try to do the operation directly
+	    n1 = do_mem_read a1;
+	    while( n1-->ntype == G_INDIR ) {
+		n1 = do_mem_read (n1-->left);
+	    }
+	    n2 = do_mem_read a2;
+	    while( n2-->ntype == G_INDIR ) {
+		n2 = do_mem_read (n2-->left);
+	    }
+	    if( Fits_in_INT prim n1 n2 ) {
+		n-->ntype = G_INT;
+		n-->int = do int_alu prim (n1-->int) (n2-->int);
+	    } else {
+		n = do arbi_unit prim a1 a2;
+	    }
+    } else if( (prim == P_DIV) | (prim == P_MOD) ) {
+	    // Check for denominator = 0
+	    n2 = do_mem_read a2;
+	    while( n2-->ntype == G_INDIR ) {
+		a2 = n2-->left;
+		n2 = do_mem_read(a2);
+	    }
+	    if( (n2-->ntype == G_INT) & (n2-->int == ZERO) ) {
+		n-->ntype = G_INT;
+		n-->int = ZERO;
+	    } else {
+//		n = do div prim a1 a2;
+	    }
+    } else if( (prim == P_AND) | (prim == P_OR) ) {
+	n = do misc_unit prim a1 a2;
+    } else if( (prim == P_NOT) ) {
+	n = do misc_unit prim a1 a1;
+    } else if( (prim == P_EQ) | (prim == P_NEQ) ) {
+	n1 = do_mem_read a1;
+	while( n1-->ntype == G_INDIR ) {
+	    n1 = do_mem_read (n1-->left);
+	}
+	n2 = do_mem_read a2;
+	while( n2-->ntype == G_INDIR ) {
+	    n2 = do_mem_read (n2-->left);
+	}
+	if( (n1-->ntype == G_INT) | (n1-->ntype == G_AINT) ) {
+	    // Integer equality/inequality
+	    if( Fits_in_INT prim n1 n2 ) {
+		n-->ntype = G_INT;
+		n-->int = do int_alu prim (n1-->int) (n2-->int);
+	    } else {
+		n = do arbi_unit prim a1 a2;
+	    }
+	} else if( n1-->ntype == G_NIL ) {
+	    n-->ntype = G_INT;
+	    if( n2-->ntype == G_NIL ) {
+		n-->int = (if (prim == P_EQ) then 1 else 0);
+	    } else {
+		n-->int = (if (prim == P_EQ) then 0 else 1);
+	    }
+	} else if( n2-->ntype == G_NIL ) {
+	    n-->ntype = G_INT;
+	    n-->int = (if (prim == P_EQ) then 0 else 1);
+	} else {
+	    // Two non-empty lists to be compared
+	    //                                                           
+	    //  f is EQ or NEQ                                            
+	    //                                                           
+	    //          @                @                               
+	    //         / \              / \                              
+	    //        /   \            /   \                               
+	    //       /     :    ==>   /     \                                 
+	    //      @     / \        /       \                             
+	    //     / \   C   D      /         \                            
+	    //    f   :            @           \                       
+	    //       / \          / \           @                        
+	    //      A   B        C   @         / \                       
+	    //                      / \       /  AND                     
+	    //                     A   f     @                           
+	    //                              / \                          
+	    //                             D   @                         
+	    //                                / \                        
+	    //                               B   f                       
+	    //                                                           
+	    //                                                           
+	    n-->ntype = G_APP;
+	    //
+	    tmp-->ntype = G_APP;
+	    tmp-->left = n1-->left;
+	    tmp-->right = orig_p;
+	    t1 = do mem_alloc;
+	    do_mem_write t1 tmp;
+	    //
+	    tmp-->left = n2-->left;
+	    tmp-->right = t1;
+	    t2 = do mem_alloc;
+	    do_mem_write t2 tmp;
+	    //
+	    n-->left = t2;
+	    //
+	    tmp-->ntype = G_APP;
+	    tmp-->left = n1-->right;
+	    tmp-->right = orig_p;
+	    t1 = do mem_alloc;
+	    do_mem_write t1 tmp;
+	    //
+	    tmp-->left = n2-->right;
+	    tmp-->right = t1;
+	    t2 = do mem_alloc;
+	    do_mem_write t2 tmp;
+	    //
+	    tmp-->ntype = G_PRIM;
+	    tmp-->prim = P_AND;
+	    t1 = do mem_alloc;
+	    do_mem_write t1 tmp;
+	    //
+	    tmp-->ntype = G_APP;
+	    tmp-->left = t2;
+	    tmp-->right = t1;
+	    t1 = do mem_alloc;
+	    do_mem_write t1 tmp;
+	    //
+	    n-->right = t1;
+	    //
+	    // We should really adjust the up and p pointers here....
+	    //
+	}
+    } else if( prim == P_COND ) {
+	n-->ntype = G_INDIR;
+	cond = do_mem_read a1;
+	while( cond-->ntype == G_INDIR ) {
+	    cond = do_mem_read (cond-->left);
+	}
+	if( cond-->int == ZERO ) {
+	    n-->left = a3;
+	} else {
+	    n-->left = a2;
+	}
+    } else if( prim == P_FST ) {
+	n-->ntype = G_INDIR;
+	tuple = do_mem_read a1;
+	while( tuple-->ntype == G_INDIR ) {
+	    tuple = do_mem_read (tuple-->left);
+	}
+	n-->left = tuple-->left;
+    } else if( prim == P_SND ) {
+	n-->ntype = G_INDIR;
+	tuple = do_mem_read a1;
+	while( tuple-->ntype == G_INDIR ) {
+	    tuple = do_mem_read (tuple-->left);
+	}
+	n-->left = tuple-->right;
+    } else if( prim == P_TUPLE ) {
+	n-->ntype = G_CONS;
+	n-->left  = a1;
+	n-->right = a2;
+    } else if( prim == P_HD ) {
+	n-->ntype = G_INDIR;
+	tuple = do_mem_read a1;
+	while( tuple-->ntype == G_INDIR ) {
+	    tuple = do_mem_read (tuple-->left);
+	}
+	n-->left = tuple-->left;
+    } else if( prim == P_TL ) {
+	n-->ntype = G_INDIR;
+	tuple = do_mem_read a1;
+	while( tuple-->ntype == G_INDIR ) {
+	    tuple = do_mem_read (tuple-->left);
+	}
+	n-->left = tuple-->right;
+    } else if( prim == P_IS_NIL ) {
+	n-->ntype = G_INT;
+	na1 = do_mem_read a1;
+	while( na1-->ntype == G_INDIR ) {
+	    na1 = do_mem_read (na1-->left);
+	}
+	n-->int = if (na1-->ntype == G_NIL) then ONE else ZERO;
+    } else if( prim == P_CONS ) {
+	n-->ntype = G_CONS;
+	n-->left = a1;
+	n-->right = a2;
+    } else if( prim == P_NIL ) {
+	n-->ntype = G_NIL;
+    }
+    // write back redex
+    do uRAM_write p up;
+    do_mem_write p n;
+    new_p_up-->p = p;
+    new_p_up-->up = up;
+    return;
+}

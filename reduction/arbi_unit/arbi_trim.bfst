@@ -1,0 +1,35 @@
+#include "primitives.binc"
+
+action arb_rf_length:ArbRfLength provided by external via std_proto;
+action arb_rf_get:ArbRfGet[2] provided by external via std_proto;
+action arb_rf_pop:ArbRfPop provided by external via std_proto;
+
+
+define ZERO      = (fl "{'0::Aint}");
+define MINUS_ONE = (fl "{'-1::Aint}");
+define MSB       = (fl "\\z. hd (tobits z)");
+
+
+module arbi_trim;
+protocol std_proto;
+
+function main : idx:index -> ()
+{
+    var alen	l;
+    var Aint	cur, lower;
+
+    l = do arb_rf_length idx;
+    cur = do arb_rf_get idx (l-1);
+    while( l > 1 ) {
+	lower = do arb_rf_get idx (l-2);
+	if( ~( (MSB(lower) & (cur == MINUS_ONE)) |
+	       (~MSB(lower) & (cur == ZERO)) ) ) {
+	    return;
+	}
+	do arb_rf_pop idx;
+	cur = lower;
+	l = l-1;
+    }
+    return;
+}
+

@@ -1,0 +1,6 @@
+types.fl
+cephalopode_types.binc
+reduction/comb_unit.bfst
+reduction/prim_unit.bfst
+reduction/reduction.bfst
+reduction/stack.fl

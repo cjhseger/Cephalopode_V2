@@ -1,0 +1,26 @@
+#include "../../cephalopode_types.binc"
+#include "../reduction_types.binc"
+
+type index => "index";
+type alen  => "alen";
+
+actiontype ArbRfNew    = idx:index reading [ARBRF] writing [ARBRF];
+actiontype ArbRfAlloc  = idx:index -> cnt:alen -> () reading [ARBRF] writing [ARBRF];
+actiontype ArbRfLength = idx:index -> len:alen reading [ARBRF] writing [];
+actiontype ArbRfPush   = idx:index -> i:Aint -> () reading [] writing [ARBRF];
+actiontype ArbRfPop    = idx:index -> () reading [ARBRF] writing [ARBRF];
+actiontype ArbRfGet    = idx:index -> i:alen -> v:Aint reading [ARBRF] writing [];
+actiontype ArbRfSet    = idx:index -> i:alen -> v:Aint -> () reading [] writing [ARBRF];
+
+actiontype Int2Arbi    = arg:Addr -> idx:index reading [MEM,ARBRF] writing [ARBRF];
+actiontype Arbi2Int    = idx:index -> res:Node reading [MEM,ARBRF] writing [MEM];
+actiontype ArbiTrim    = idx:index -> () reading [ARBRF] writing [ARBRF];
+
+actiontype ArbiAddSub  = subtract:bit -> arg1:Addr -> arg2:Addr -> res:Node
+			    reading [MEM,ARBRF] writing [MEM,ARBRF]
+;
+actiontype ArbRfFree   = () reading [ARBRF] writing [ARBRF];
+
+actiontype AddSubUnit  = subtract:bit -> arg1:Addr -> arg2:Addr -> res:Node
+			    reading [MEM,ARBRF] writing [MEM,ARBRF]
+;

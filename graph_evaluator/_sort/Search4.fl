@@ -1,0 +1,20 @@
+cload "../../fl_compiler/mk_rom3.fl";
+load "InputSearch.fl";
+
+let search {key::int} {l::int list} =
+    letrec look l =
+	l = [] => [] |
+	let e = hd l in
+	key = e => e:(look (tl l)) | (look (tl l))
+    in
+    look l
+;
+
+forward_declare {lsum::(int list) -> int};
+let lsum l = l = [] => 0 | (hd l) + (lsum (tl l));
+
+let main = (lsum (search key xs)) = answer;
+
+mk_cephalopode_rom "Search.rom" "main";
+
+quit;

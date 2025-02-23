@@ -1,0 +1,28 @@
+cload (DIR^"combinator_list.fl");
+cload (DIR^"reduction_types.fl");
+
+let arg_unit =
+    bit_input           clk reset.
+    bit_input           a'set_arg'req.
+    bit_output          a'set_arg'ack.
+    arity_input         a'set_arg'i'idx.
+    addr_input          a'set_arg'i'addr.
+    addr_list_output    arg_addrs.
+    // Internal
+    bit_list_internal   MAX_ARITY   arg_addrs_en.
+    CELL "arg_unit" (
+        (map2 (\e.\o. re_ff_en_reset clk e reset a'set_arg'i'addr o)
+              arg_addrs_en arg_addrs)
+        @
+        [
+          // set_arg
+          EN_DECODER_list a'set_arg'req a'set_arg'i'idx arg_addrs_en
+        , a'set_arg'ack <- a'set_arg'req
+        ]
+);
+
+
+// NOTE: Need to declare
+//    addr_list_internal        MAX_ARITY   arg_addrs.
+// in parent module!
+

@@ -1,0 +1,34 @@
+#include "primitives.binc"
+
+// Actions
+action mem_read:MemRead provided by external via proto_mem;
+action mem_write:MemWrite provided by external via proto_mem;
+action mem_alloc:MemAlloc provided by external via proto_mem;
+
+
+
+module div_mod_unit;
+protocol std_proto;
+
+function main : arg1:Addr -> arg2:Addr -> res:Node
+{
+    var Node	    v1, v2, dres, mres;
+    var Addr	    dnd, mnd;
+    v1 = do mem_read arg1;
+    v2 = do mem_read arg2;
+    //
+    dnd = do mem_alloc;
+    dres-->ntype = G_INT;
+    dres-->int = (v1-->int) / (v2-->int);
+    do mem_write dnd dres;
+    //
+    mnd = do mem_alloc;
+    mres-->ntype = G_INT;
+    mres-->int = (v1-->int) % (v2-->int);
+    do mem_write mnd mres;
+    //
+    res-->ntype = G_CONS;
+    res-->left = dnd;
+    res-->right = mnd;
+    return;
+}

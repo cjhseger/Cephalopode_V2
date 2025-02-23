@@ -1,0 +1,11 @@
+#!/bin/csh
+
+#
+# Usage: EVAL {opts} rom_file
+# where opts is some of:
+#	       -g			    // Use gui
+#	       -v			    // Verbose
+#	       -s <index_tracing_from>	    // Trace only from this index
+#	       -m <max_reductions>	    // Abort if more reductions needed
+#		
+fl -f rom2C.fl -- $argv[1-]

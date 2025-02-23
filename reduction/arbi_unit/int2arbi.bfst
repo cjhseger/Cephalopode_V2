@@ -1,0 +1,50 @@
+#include "primitives.binc"
+
+// Actions
+action mem_unit:MemUnit provided by external via mem_proto;
+
+action arb_rf_new:ArbRfNew provided by external via std_proto;
+action arb_rf_push:ArbRfPush provided by external via std_proto;
+
+define MSD = (fl "\\z. MSD(z) ");
+define LSD = (fl "\\z. LSD(z)");
+define MSB	 = ((fl "\\z. hd (tobits z)") :: Aint -> bit);
+define ZERO	 = (fl "{'0::Aint}");
+define ONE	 = (fl "{'1::Aint}");
+define MINUS_ONE = (fl "{'-1::Aint}");
+
+module int2arbi;
+protocol std_proto;
+
+
+function main : arg:Addr -> idx:index
+{
+    var Node n;
+    var Aint dH, dL;
+
+    idx = do arb_rf_new;
+
+    n = do_mem_read arg;
+    while( n-->ntype == G_INDIR ) {
+        n = do_mem_read (n-->left);
+    }
+
+    if( n-->ntype == G_INT ) {
+	dL = LSD(n-->int);
+	dH = MSD(n-->int);
+	if( (MSB(dL) & (dH == MINUS_ONE)) | (~MSB(dL) & (dH == ZERO)) ) {
+	    do arb_rf_push idx (dL);
+	} else {
+	    do arb_rf_push idx (dL);
+	    do arb_rf_push idx (dH);
+	}
+    } else {
+	do arb_rf_push idx (n-->aint);
+	while( n-->left != 0 ) {
+	    n = do_mem_read (n-->left);
+	    do arb_rf_push idx (n-->aint);
+	}
+    }
+    return;
+}
+

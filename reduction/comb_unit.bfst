@@ -1,0 +1,461 @@
+#include "../cephalopode_types.binc"
+#include "reduction_types.binc"
+
+action mem_unit:MemUnit provided by external via mem_proto;
+action mem_alloc:MemAlloc provided by external via alloc_proto;
+action uRAM_read:uRAMRead provided by external via std_proto;
+action uRAM_write:uRAMWrite provided by external via std_proto;
+
+module comb_unit;
+protocol std_proto;
+
+function main : n:Node -> p:Addr -> up:Addr -> res:GraphPtr
+{
+    var Addr	    a1, a2, a3, a4, an_1, an;
+    var Addr	    al1, al2, al3, al4;
+    var Combinator  comb;
+    var Cidx	    cnt, i;
+    var Node	    bot, last;
+    var Addr	    tmpl, botl, lastl;
+ 
+    comb  = n-->comb;
+    if( comb == C_I ) {
+        //         @         ==>      =
+        //        / \                  \
+        //       I   X                  X
+        //
+	p = up; n = do_mem_read p; up = do uRAM_read p; a1 = n-->right;
+	//
+	n-->ntype = G_INDIR;
+	n-->left  = a1;
+	do_mem_write p n;
+	//
+	res-->up = up;
+	res-->p  = a1;
+	return;
+    } else
+    if( comb == C_K ) {
+	//         @         ==>      =
+	//        / \                  \
+	//       @   y                  x
+	//      / \
+	//     K   x
+	// Get arguments
+	p = up; n = do_mem_read p; up = do uRAM_read p; a1 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a2 = n-->right;
+	//
+	n-->ntype = G_INDIR;
+	n-->left  = a1;
+	do_mem_write p n;
+	//
+	res-->up = up;
+	res-->p  = a1;
+	return;
+    } else
+    if( comb == C_S ) {
+	//       @                    @
+	//      / \                  / \
+	//     @   X                /   \
+	//    / \       ==>        @     @
+	//   @   G                / \   / \
+	//  / \                  F   \ G   \
+	// S   F                      \____ X
+	p = up; n = do_mem_read p; up = do uRAM_read p; a1 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a2 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a3 = n-->right;
+	//
+	al1 = call make_app_with_up a1 a3 p;
+	al2 = call make_app a2 a3;
+	n-->left = al1; n-->right = al2; do_mem_write p n;
+	res-->up = al1;
+	res-->p = a1;
+	return;
+    } else
+    if( comb == C_SPRIMEPRIME ) {
+	//                                                                 
+        //         @                     @
+        //        / \                   / \
+        //       @   x                 /   \
+        //      / \        ==>        /     \
+        //     @   P                 /       \
+        //    / \                   @         @
+        //   @   O                 / \       / \
+        //  / \                   @   \     @   \
+        // S'' N                 / \   \   /|   |
+        //                      N   \   \ O |   |
+        //                           \   \  |   |
+        //                            \   \ |   |
+        //                             \   \|   |
+        //                              \   |   |
+        //                               \  |\  |
+        //                                \ | \ |
+        //                                 \|  \|
+        //                                  P   x
+	p = up; n = do_mem_read p; up = do uRAM_read p; a1 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a2 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a3 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a4 = n-->right;
+	//
+	al1 = call make_app a2 a3;
+	al2 = call make_app al1 a4;
+	al3 = call make_app a1 a3;
+	al4 = call make_app_with_up al3 a4 p;
+	do uRAM_write al3 al4;
+	n-->left = al4; n-->right = al2; do_mem_write p n;
+	//
+	res-->up = al3;
+	res-->p = a1;
+	return;
+    } else
+
+    if( comb == C_SPRIME ) {
+	//
+	//         @                  @__
+	//        / \                /   \
+	//       @   P              @     @
+	//      / \      ==>       / \   / \
+	//     @   O              M   @ O   |
+	//    / \                    / \    |
+	//   @   N                  N   \   |
+	//  / \                          \  |
+	// S'  M                          \ |
+	//                                 \|
+	//                                  P
+	p = up; n = do_mem_read p; up = do uRAM_read p; a1 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a2 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a3 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a4 = n-->right;
+	//
+	al1 = call make_app a2 a4;
+	al2 = call make_app_with_up a1 al1 p;
+	al3 = call make_app a3 a4;
+	n-->left = al2; n-->right = al3; do_mem_write p n;
+	//
+	res-->up = al2;
+	res-->p = a1;
+	return;
+    } else
+
+    if( comb == C_C ) {
+	//       @                    @
+	//      / \                  / \
+	//     @   y                @   x
+	//    / \       ==>        / \
+	//   @   x                f   y
+	//  / \
+	// C   f
+	//
+	p = up; n = do_mem_read p; up = do uRAM_read p; a1 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a2 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a3 = n-->right;
+	//
+	al1 = call make_app_with_up a1 a3 p;
+	n-->left = al1; n-->right = a2; do_mem_write p n;
+	//
+	res-->up = al1;
+	res-->p = a1;
+	return;
+    } else
+    if( comb == C_CPRIME ) {
+	//         @                  @
+	//        / \                / \
+	//       @   P              @   O
+	//      / \                / \
+	//     @   O              M   @
+	//    / \       ==>          / \
+	//   @   N                  N   P
+	//  / \
+	// C'  M
+	p = up; n = do_mem_read p; up = do uRAM_read p; a1 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a2 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a3 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a4 = n-->right;
+	al1 = call make_app a2 a4;
+	al2 = call make_app_with_up a1 al1 p;
+	n-->left = al2; n-->right = a3; do_mem_write p n;
+	res-->up = al2;
+	res-->p = a1;
+	return;
+    } else
+    if( comb == C_B ) {
+	//       @                    @
+	//      / \                  / \
+	//     @   X                F   @
+	//    / \       ==>            / \
+	//   @   G                    G   X
+	//  / \
+	// B   F
+	p = up; n = do_mem_read p; up = do uRAM_read p; a1 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a2 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a3 = n-->right;
+	al1 = call make_app a2 a3;
+	n-->left = a1; n-->right = al1; do_mem_write p n;
+	res-->up = p;
+	res-->p = a1;
+	return;
+    } else
+    if( comb == C_BSTAR ) {
+	//         @                  @
+	//        / \                / \
+	//       @   x              c   @
+	//      / \                    / \
+	//     @   g                  f   @
+	//    / \       ==>              / \
+	//   @   f                      g   x
+	//  / \
+	// B*  c
+	p = up; n = do_mem_read p; up = do uRAM_read p; a1 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a2 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a3 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a4 = n-->right;
+	al1 = call make_app a3 a4;
+	al2 = call make_app a2 al1;
+	n-->left = a1; n-->right = al2; do_mem_write p n;
+	res-->up = p;
+	res-->p  = a1;
+	return;
+    } else
+    if( comb == C_Cn ) {
+	cnt = n-->comb_idx;
+	if( cnt == 1 ) {
+	    //       @                    @
+	    //      / \                  / \
+	    //     @   x                @   e1
+	    //    / \       ==>        / \
+	    //   @   e1               f   a
+	    //  / \
+	    // C1  f
+	    //
+	    p = up; n = do_mem_read p; up = do uRAM_read p; a1 = n-->right;
+	    p = up; n = do_mem_read p; up = do uRAM_read p; a2 = n-->right;
+	    p = up; n = do_mem_read p; up = do uRAM_read p; a3 = n-->right;
+	    //
+	    al1 = call make_app_with_up a1 a3 p;
+	    n-->left = al1; n-->right = a2; do_mem_write p n;
+	    //
+	    res-->up = al1;
+	    res-->p = a1;
+	    return;
+	} else {
+	    //             @                    @
+	    //            / \                  / \
+	    //           @   x               ...  en
+            //          / \                  / \                           
+	    //        ...  en               @                          
+	    //        /                    / \                         
+            //       @                    @   e2                         
+            //      / \                  / \                           
+	    //     @   e2               @   e1
+	    //    / \       ==>        / \
+	    //   @   e1               f   x
+	    //  / \
+	    // Cn  f
+	    //
+	    p = up; n = do_mem_read p; up = do uRAM_read p; a1 = n-->right;
+	    bot-->ntype = G_APP;
+	    bot-->left = a1;
+	    botl = do mem_alloc;
+	    lastl = botl;
+	    //
+	    p = up; n = do_mem_read p; up = do uRAM_read p; a2 = n-->right;
+	    tmpl = do mem_alloc;
+	    do uRAM_write botl tmpl;
+	    last-->ntype = G_APP;
+	    last-->left = lastl;
+	    last-->right = a2;
+	    lastl = tmpl;
+	    for(i = 2; i < cnt; i++) {
+		p = up; n = do_mem_read p; up = do uRAM_read p; a3 = n-->right;
+		tmpl = do mem_alloc;
+		do uRAM_write lastl tmpl;
+		do_mem_write lastl last;
+		last-->left = lastl;
+		last-->right = a3;
+		lastl = tmpl;
+	    }
+	    p = up; n = do_mem_read p; up = do uRAM_read p; an_1 = n-->right;
+	    p = up; n = do_mem_read p; up = do uRAM_read p; an = n-->right;
+	    do uRAM_write lastl p;
+	    do_mem_write lastl last;
+	    n-->left = lastl;
+	    n-->right = an_1;
+	    do_mem_write p n;
+	    bot-->right = an;
+	    do_mem_write botl bot;
+	    res-->up = botl;
+	    res-->p  = a1;
+	    return;
+	}
+    } else
+    if( comb == C_L ) {
+	cnt = n-->comb_idx;
+	if( cnt == 1 ) {
+	    //             @                   @                          
+	    //            / \                 / \                          
+	    //           @   x               x   E1                        
+	    //          / \       ==>                                      
+	    //         L1  E1                                              
+	    //
+	    p = up; n = do_mem_read p; up = do uRAM_read p; a1 = n-->right;
+	    p = up; n = do_mem_read p; up = do uRAM_read p; a2 = n-->right;
+	    n-->left = a2; n-->right = a1; do_mem_write p n;
+	    res-->up = p;
+	    res-->p  = a2;
+	    return;
+	} else
+	if( cnt == 2 ) {
+	    //             @                   @                          
+	    //            / \                 / \                          
+	    //           @   x               @   E2                        
+	    //          / \       ==>       / \                            
+	    //         @   E2              /   E1                        
+	    //        / \                 x                              
+	    //       L2 E1                                             
+	    //
+	    p = up; n = do_mem_read p; up = do uRAM_read p; a1 = n-->right;
+	    p = up; n = do_mem_read p; up = do uRAM_read p; a2 = n-->right;
+	    p = up; n = do_mem_read p; up = do uRAM_read p; a3 = n-->right;
+	    al1 = call make_app_with_up a3 a1 p;
+	    n-->left = al1; n-->right = a2; do_mem_write p n;
+	    res-->up = al1;
+	    res-->p  = a3;
+	    return;
+	} else {
+	    // cnt >= 3
+	    //             @                   @                          
+	    //            / \                 / \                          
+	    //           @   x               @   En                        
+	    //          / \       ==>       / \                            
+	    //         @   En              /   En-1                        
+	    //        / \                ...                             
+	    //       /  En-1              /                            
+	    //     ...                   @                             
+	    //     /                    / \                    
+	    //    @                    x  E1                                 
+	    //   / \                                                
+	    //  Ln  E1                                               
+	    //
+	    p = up; n = do_mem_read p; up = do uRAM_read p; a1 = n-->right;
+	    bot-->ntype = G_APP;
+	    bot-->right = a1;
+	    botl = do mem_alloc;
+	    lastl = botl;
+	    //
+	    p = up; n = do_mem_read p; up = do uRAM_read p; a2 = n-->right;
+	    tmpl = do mem_alloc;
+	    do uRAM_write botl tmpl;
+	    last-->ntype = G_APP;
+	    last-->left = lastl;
+	    last-->right = a2;
+	    lastl = tmpl;
+	    for(i = 3; i < cnt; i++) {
+		p = up; n = do_mem_read p; up = do uRAM_read p; a3 = n-->right;
+		tmpl = do mem_alloc;
+		do uRAM_write lastl tmpl;
+		do_mem_write lastl last;
+		last-->left = lastl;
+		last-->right = a3;
+		lastl = tmpl;
+	    }
+	    p = up; n = do_mem_read p; up = do uRAM_read p; an_1 = n-->right;
+	    p = up; n = do_mem_read p; up = do uRAM_read p; an = n-->right;
+	    do uRAM_write lastl p;
+	    do_mem_write lastl last;
+	    n-->left = lastl;
+	    n-->right = an_1;
+	    do_mem_write p n;
+	    bot-->left = an;
+	    do_mem_write botl bot;
+	    res-->up = botl;
+	    res-->p  = an;
+	    return;
+	}
+    } else
+    if( comb == C_BPRIME ) {
+	//         @                  @
+	//        / \                / \
+	//       @   x              /   \
+	//      / \                @     @
+	//     @   g              / \   / \
+	//    / \       ==>      c   f g   x
+	//   @   f
+	//  / \
+	// B'  c
+	p = up; n = do_mem_read p; up = do uRAM_read p; a1 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a2 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a3 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a4 = n-->right;
+	al1 = call make_app_with_up a1 a2 p;
+	al2 = call make_app a3 a4;
+	n-->left = al1; n-->right = al2; do_mem_write p n;
+	res-->up = al1;
+	res-->p  = a1;
+	return;
+    } else
+    if( comb == C_Y ) {
+	//         @                  @<-+
+	//        / \                / \ |
+	//       Y   f              f   -+
+	p = up; n = do_mem_read p; up = do uRAM_read p; a1 = n-->right;
+	n-->left = a1; n-->right = p; do_mem_write p n;
+	res-->up = p;
+	res-->p  = a1;
+	return;
+    } else
+    if( comb == C_S1 ) {
+	//         @                  @
+	//        / \                / \
+	//       @   A              /   \
+	//      / \                A     fn
+	//     S1  fn
+	p = up; n = do_mem_read p; up = do uRAM_read p; a1 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a2 = n-->right;
+	n-->left = a2; n-->right = a1; do_mem_write p n;
+	res-->up = p;
+	res-->p  = a2;
+	return;
+    } else
+    if( comb == C_S2 ) {
+	//           @                 @
+	//          / \               / \
+	//         @   B             B   @
+	//        / \                   / \
+	//       @   A                 A   fn
+	//      / \
+	//     S2  fn
+	p = up; n = do_mem_read p; up = do uRAM_read p; a1 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a2 = n-->right;
+	p = up; n = do_mem_read p; up = do uRAM_read p; a3 = n-->right;
+	al1 = call make_app a2 a1;
+	n-->left = a3; n-->right = al1; do_mem_write p n;
+	res-->up = p;
+	res-->p  = a3;
+	return;
+    }
+    return;
+}
+
+inline function make_app : l:Addr -> r:Addr -> al:Addr
+{
+    var Node N;
+    al = do mem_alloc;
+    N = 0;
+    N-->ntype = G_APP;
+    N-->left  = l;
+    N-->right = r;
+    do_mem_write al N;
+    return;
+}
+
+inline function make_app_with_up : l:Addr -> r:Addr -> u:Addr -> al:Addr
+{
+    var Node N;
+    al = do mem_alloc;
+    do uRAM_write al u;
+    N = 0;
+    N-->ntype = G_APP;
+    N-->left  = l;
+    N-->right = r;
+    do_mem_write al N;
+    return;
+}

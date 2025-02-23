@@ -1,0 +1,138 @@
+cload "../../fl_compiler/mk_rom3.fl";
+load "InputSearch.fl";
+
+compile2comb (LAMBDA "rem"
+		(APPLY (VAR "rem")
+		       (APPLY (VAR "rem")
+			      (LEAF (PRIM_FN (name2primfn "P_PLUS"))))))
+;
+
+compile2comb (LAMBDA "rem"
+		(APPLY (APPLY (LEAF (PRIM_FN (name2primfn "P_PLUS")))
+		              (VAR "rem"))
+		       (VAR "rem")))
+;
+
+
+forward_declare {pow2 :: int -> int};
+let pow2 i =
+    i = 0 => 1 |
+    let rem = pow2 (i-1) in
+    rem + rem
+;
+let main = pow2 8;
+
+use_trick     := T;
+mk_cephalopode_rom "pow2T.rom" "main" T T; // draw_rom->T;
+
+use_trick     := F;
+mk_cephalopode_rom "pow2F.rom" "main" T T; // draw_rom->T;
+
+
+//let double i = 2*i;
+//let main =
+//    let inc x = (double x)+1 in
+//    let twice x = inc x + inc (x+1) in
+//    inc (twice 12 + twice 3)
+//;
+//mk_cephalopode_rom "Search.rom" "main" draw_rom->T;
+//
+//let main =
+//    let sq n =
+//	    let res = n*n in
+//	    res
+//    in
+//    sq 3 + sq 7
+//;
+//mk_cephalopode_rom "Search.rom" "main" T T; // draw_rom->T;
+//
+//let main =
+//    let sq n =
+//	let d = n+n in
+//	d*d
+//    in
+//    sq 3 + sq 7
+//;
+//mk_cephalopode_rom "Search.rom" "main" T T; // draw_rom->T;
+//
+//forward_declare {test :: int -> int};
+//let test n =
+//    n = 0 => 1 |
+//    let d = n+n in
+//    d*(test (n-1))
+//;
+//let main = test 2;
+//mk_cephalopode_rom "Search.rom" "main" T T; // draw_rom->T;
+//
+//
+//forward_declare {search :: int -> (int list) -> (int list)};
+//let search key l =
+//    l = [] => [] |
+//    let e = hd l in
+//    let rem = search key (tl l) in
+//    e = key => e:rem | rem
+//;
+//let key = 1;
+//let l = [1,2];
+//let main = search key l;
+//mk_cephalopode_rom "Search.rom" "main" T; // draw_rom->T;
+//
+
+
+
+
+forward_declare {search1 :: int -> (int list) -> (int list)};
+let search1 key l =
+    l = [] => [] |
+    let e = hd l in
+    let rem = search1 key (tl l) in
+    e = key => e:rem | rem
+;
+
+forward_declare {search2 :: int -> (int list) -> (int list)};
+let search2 key l =
+    l = [] => [] |
+    let e = hd l in
+    key = e => e:(search2 key (tl l)) | (search2 key (tl l))
+;
+
+forward_declare {search3 :: int -> (int list) -> (int list)};
+let search3 key l =
+    l = [] => [] |
+    key = hd l => (hd l):(search3 key (tl l)) | (search3 key (tl l))
+;
+
+forward_declare {search4 :: int -> (int list) -> (int list)};
+let search4 key l =
+    [] = l => [] |
+    (hd l) = key => (hd l):(search4 key (tl l)) | (search4 key (tl l))
+;
+
+forward_declare {lsum::(int list) -> int};
+let lsum l = l = [] => 0 | (hd l) + (lsum (tl l));
+
+//let key = 1;
+//let xs = [3,1,4,5,1];
+//let answer = 2;
+
+let main1 = (lsum (search1 key xs)) = answer;
+let main2 = (lsum (search2 key xs)) = answer;
+let main3 = (lsum (search3 key xs)) = answer;
+let main4 = (lsum (search4 key xs)) = answer;
+//let test = [1,2];
+//let main = search 1 test;
+//let test = [1,2];
+//let main = (lsum test);
+
+
+mk_cephalopode_rom "Search1.rom" "main1"  T; // draw_rom->T;
+
+mk_cephalopode_rom "Search2.rom" "main2" ;
+mk_cephalopode_rom "Search3.rom" "main3" T;
+mk_cephalopode_rom "Search4.rom" "main4" ;
+
+DBG_rearrange "main1";
+DBG_compile "main1";
+
+//draw_term (snd (get_userdef_combinator_expression 3727));
+//quit;

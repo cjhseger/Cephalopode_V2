@@ -1,0 +1,22 @@
+cload (DIR^"../types.fl");
+cload (DIR^"../lend/lend.fl");
+cload (DIR^"../bundles.fl");
+
+// Module that manages the freelist.
+// Ackpulse protocol on all interfaces.
+// See lend.fl included above.
+// GC should get priority (interface 0 for each).
+let freelist =
+    bit_input clk.
+    bit_input reset.
+    // services
+    B_freelist_checkout_input	S_freelist_checkout0 S_freelist_checkout1.
+    B_freelist_checkin_input	S_freelist_checkin0 S_freelist_checkin1.
+    CELL "freelist" [
+        lend clk reset
+	    (S_freelist_checkout0-->req) (S_freelist_checkout0-->ack) (S_freelist_checkout0-->free)
+	    (S_freelist_checkout1-->req) (S_freelist_checkout1-->ack) (S_freelist_checkout1-->free)
+	    (S_freelist_checkin0-->req) (S_freelist_checkin0-->ack) (S_freelist_checkin0-->free)
+	    (S_freelist_checkin1-->req) (S_freelist_checkin1-->ack) (S_freelist_checkin1-->free)
+];
+create_default_version freelist;

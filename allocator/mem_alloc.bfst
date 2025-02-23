@@ -1,0 +1,29 @@
+#include "../cephalopode_types.binc"
+
+module mem_alloc;
+protocol alloc_proto;
+
+action mem_unit:MemUnit provided by external via mem_proto;
+action alloc_freelist_get_next:FreeListGetNext provided by external
+		via std_proto
+;
+action alloc_freelist_empty:FreeListEmpty provided by external
+		via comb_proto
+;
+action mem_get_heap:MEM_GET_HEAP provided by external via mem_get_heap_proto;
+action gc_cnt_inc:GcCntInc provided by external via std_proto;
+
+function main : addr:Addr
+{
+    var Node n;
+
+    if( do alloc_freelist_empty ) {
+	// Freelist depleted. Get new node from heap.
+	addr = do mem_get_heap;
+    } else {
+	// Remove the head element from the free list.
+	addr = do alloc_freelist_get_next;
+    }
+    do gc_cnt_inc;
+    return;
+}

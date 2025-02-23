@@ -1,0 +1,54 @@
+cload (DIR^"../../fl_compiler/mk_rom3.fl");
+
+load "InputSort.fl";
+
+forward_declare {smaller :: int -> (int list) -> (int list)};
+let smaller key l = 
+    l = [] => [] |
+    let e = hd l in
+    key > e => (e:(smaller key (tl l))) | (smaller key (tl l))
+;
+
+forward_declare {not_smaller :: int -> (int list) -> (int list)};
+let not_smaller key l = 
+    l = [] => [] |
+    let e = hd l in
+    key > e => (not_smaller key (tl l)) | e:(not_smaller key (tl l))
+;
+
+forward_declare {merge :: (int list) -> int -> (int list) -> (int list)};
+let merge first k last =
+    first = [] => k:last |
+    (hd first):(merge (tl first) k last)
+;
+
+forward_declare {qsort :: (int list) -> (int list)};
+let qsort l =
+    l = [] => [] |
+    let pivot = hd l in
+    let l' = tl l in
+    l' = [] => l |
+    let before = qsort (smaller pivot l') in
+    let after = qsort (not_smaller pivot l') in
+    merge before pivot after
+;
+
+forward_declare {list_last :: (int list) -> int};
+let list_last l = 
+    let rem = tl l in
+    rem = [] => hd l |
+    list_last rem
+;
+
+let res =
+    let l = qsort xs in
+    let first = hd l in
+    let last = list_last l in
+    last-first
+;
+
+let main = (res = answer);
+
+mk_cephalopode_rom "Sort.rom" "main";
+
+quit;

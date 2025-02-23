@@ -1,0 +1,61 @@
+#include "../../cephalopode_types.binc"
+
+type Mem_op => "mem_op";
+define MEM_INIT = fl "MEM_INIT" :: Mem_op;
+define MEM_READ = fl "MEM_READ" :: Mem_op;
+define MEM_WRITE = fl "MEM_WRITE" :: Mem_op;
+define SNAP_MEM_READ = fl "SNAP_MEM_READ" :: Mem_op;
+define SNAP_PREPARE = fl "SNAP_PREPARE" :: Mem_op;
+define SNAP_TAKE = fl "SNAP_TAKE" :: Mem_op;
+
+type Mark_op => "mark_op";
+define MARK_INIT = fl "MARK_INIT" :: Mark_op;
+define MARK_GET = fl "MARK_GET" :: Mark_op;
+define MARK_SET = fl "MARK_SET" :: Mark_op;
+
+define CRAM_SIZE = fl "''CRAM_SIZE";
+define MRAM_SIZE = fl "''MRAM_SIZE";
+
+type Ctrl => "ctrl";
+fields Ctrl [live:bit, saved:bit];
+
+type cWord => "ctrl_word";
+
+type rAddr => "rom_addr";
+type eAddr => "eaddr";
+type pAddr => "paddr";
+type cAddr => "caddr";
+type mAddr => "maddr";
+type bAddr => "baddr";
+type mWord => "mark_word";
+
+
+define ROM_proto  = {{ data = "ackpulse" }};
+define RAM_proto  = {{ data = "ackpulse" }};
+define mRAM_proto = {{ data = "ackpulse" }};
+define cRAM_proto = {{ data = "ackpulse" }};
+
+state ROM;
+state RAM;
+state CRAM;
+state MRAM;
+state SNAP;
+state TOP_OF_HEAP;
+
+actiontype ROMRead = addr:rAddr -> data:Node reading [ROM] writing [];
+
+actiontype RAMWrite = addr:eAddr -> data:Node -> () reading [] writing [RAM];
+actiontype RAMRead = addr:eAddr -> data:Node reading [RAM] writing [];
+
+actiontype cRAMWrite = addr:cAddr -> data:cWord -> () reading [] writing [CRAM];
+actiontype cRAMRead = addr:cAddr -> data:cWord reading [CRAM] writing [];
+
+actiontype mRAMWrite = addr:mAddr -> data:mWord -> () reading [] writing [MRAM];
+actiontype mRAMRead = addr:mAddr -> data:mWord reading [MRAM] writing [];
+
+actiontype MarkInit = () reading [] writing [MRAM];
+
+actiontype SetSnapReady = valid:bit -> () reading [] writing [SNAP];
+
+actiontype SetTopOfHeap = addr:Addr -> () reading [] writing [TOP_OF_HEAP];
+

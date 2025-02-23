@@ -1,0 +1,15 @@
+load "mk_rom3.fl";
+
+
+forward_declare {pow2 :: int -> int};
+let pow2 n = n=0 => 1 | 2*(pow2 (n-1));
+let main = pow2 4;
+
+DBG_pre_process "main";
+
+DBG_rearrange "main";
+
+DBG_compile "main";
+
+
+mk_cephalopode_rom (sprintf "_icfp_%d.rom" (log2 MEM_SIZE)) "main" T;

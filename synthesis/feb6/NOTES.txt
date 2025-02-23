@@ -1,0 +1,27 @@
+
+Post-synthesis results
+
+medium effort synthesis across the board
+
+cephalopode runs _double6 for 1000 cycles and then terminates
+risc-v runs MhsFixedDbl6Rep1-riscv-bin, hopefully the same thing, to termination
+
+area
+    cephalopode is a lot larger
+    33265 vs 13528 cells
+
+timing
+    cephalopode datapath is slower
+    4534 vs 3266 pikoseconds
+
+power
+    numbers for activity factors versus simulation exist
+    simulation numbers look a lot more promising
+        550 000 nW for us, 426 000 nW for risc
+
+TODOS
+    MEMORY ACCESSES are not tracked or taken into account in any way
+        I have counters available for risc-v but not ceph
+        Asynch memory reads makes everything harder
+    ceph should terminate immediately when done
+    ... probably more that I can't remember now.

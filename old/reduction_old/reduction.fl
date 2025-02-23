@@ -1,0 +1,159 @@
+cload (DIR^"../types.fl");
+cload (DIR^"combinator.fl");
+
+bifrost_load "reduction.bfst" T;
+
+
+cload (DIR^"../arbiters/arb_alloc.fl");
+cload (DIR^"../arbiters/arb_memory.fl");
+cload (DIR^"primitive.fl");
+
+let reduction_engine = 
+    // common
+    bit_input clk.
+    bit_input reset.
+    bit_input req.
+    bit_output ack.
+    graphptr_input i'gp_in.
+    graphptr_output o'gp_out.
+    bit_output a'mem_read'req.
+    bit_input a'mem_read'ack.
+    addr_output a'mem_read'i'p.
+    node_input a'mem_read'o'dout.
+    bit_output a'mem_write'req.
+    bit_input a'mem_write'ack.
+    addr_output a'mem_write'i'p.
+    node_output a'mem_write'i'din.
+    bit_output a'mem_alloc'req.
+    bit_input a'mem_alloc'ack.
+    addr_input a'mem_alloc'o'p.
+    bit_input a'pause'o'p.
+    //
+    // Internal
+    //
+    combinator_internal	            a'get_comb_alloc_count'i'comb.
+    alloc_cnt_internal	            a'get_comb_alloc_count'o'cnt.
+    combinator_internal	            a'get_comb_arity'i'comb.
+    arity_internal	            a'get_comb_arity'o'cnt.
+    primitive_internal	            a'get_prim_arity'i'pfn.
+    arity_internal	            a'get_prim_arity'o'cnt.
+    bit_internal	            a'set_comb'req.
+    bit_internal	            a'set_comb'ack.
+    combinator_internal	            a'set_comb'i'comb.
+    bit_internal	            a'set_prim'req.
+    bit_internal	            a'set_prim'ack.
+    primitive_internal	            a'set_prim'i'prim.
+    bit_internal	            a'get_alloc'req.
+    bit_internal	            a'get_alloc'ack.
+    alloc_cnt_internal	            a'get_alloc'i'idx.
+    addr_internal	            a'get_alloc'o'addr.
+    bit_internal	            a'set_arg'req.
+    bit_internal	            a'set_arg'ack.
+    arity_internal	            a'set_arg'i'idx.
+    addr_internal	            a'set_arg'i'addr.
+    bit_internal	            a'get_comb_alloc_content'req.
+    bit_internal	            a'get_comb_alloc_content'ack.
+    alloc_cnt_internal	            a'get_comb_alloc_content'i'idx.
+    node_internal	            a'get_comb_alloc_content'o'res.
+    bit_internal	            a'run_comb'req.
+    bit_internal	            a'run_comb'ack.
+    addr_internal	            a'run_comb'i'redex_addr.
+    node_internal	            a'run_comb'o'res.
+    bit_internal	            a'run_prim'req.
+    bit_internal	            a'run_prim'ack.
+    node_internal	            a'run_prim'o'res.
+    bit_internal	            a'set_alloc'req.
+    bit_internal	            a'set_alloc'ack.
+    alloc_cnt_internal		    a'set_alloc'i'idx.
+    addr_internal		    a'set_alloc'i'addr.
+    addr_list_internal MAX_ARITY    arg_addrs.
+    // For the reduction unit
+    bit_internal		    r'mem_read'req.
+    bit_internal		    r'mem_read'ack.
+    addr_internal		    r'mem_read'i'p.
+    node_internal		    r'mem_read'o'dout.
+    bit_internal		    r'mem_write'req.
+    bit_internal		    r'mem_write'ack.
+    addr_internal		    r'mem_write'i'p.
+    node_internal		    r'mem_write'i'din.
+    bit_internal		    r'mem_alloc'req.
+    bit_internal		    r'mem_alloc'ack.
+    addr_internal		    r'mem_alloc'o'p.
+    // For the primitive unit
+    bit_internal		    p'mem_read'req.
+    bit_internal		    p'mem_read'ack.
+    addr_internal		    p'mem_read'i'p.
+    node_internal		    p'mem_read'o'dout.
+    bit_internal		    p'mem_write'req.
+    bit_internal		    p'mem_write'ack.
+    addr_internal		    p'mem_write'i'p.
+    node_internal		    p'mem_write'i'din.
+    bit_internal		    p'mem_alloc'req.
+    bit_internal		    p'mem_alloc'ack.
+    addr_internal		    p'mem_alloc'o'p.
+    //
+    CELL "reduction_engine" [
+	  reduction clk reset req ack i'gp_in o'gp_out
+	    r'mem_read'req r'mem_read'ack r'mem_read'i'p r'mem_read'o'dout
+	    r'mem_write'req r'mem_write'ack r'mem_write'i'p r'mem_write'i'din
+	    r'mem_alloc'req r'mem_alloc'ack r'mem_alloc'o'p
+	    a'pause'o'p
+	    a'get_comb_alloc_count'i'comb a'get_comb_alloc_count'o'cnt
+	    a'get_comb_arity'i'comb a'get_comb_arity'o'cnt
+		a'get_prim_arity'i'pfn a'get_prim_arity'o'cnt
+	    a'set_comb'req a'set_comb'ack a'set_comb'i'comb
+	    a'set_prim'req a'set_prim'ack a'set_prim'i'prim
+	    a'get_alloc'req a'get_alloc'ack a'get_alloc'i'idx a'get_alloc'o'addr
+	    a'set_arg'req a'set_arg'ack a'set_arg'i'idx a'set_arg'i'addr
+	    a'get_comb_alloc_content'req a'get_comb_alloc_content'ack
+		a'get_comb_alloc_content'i'idx a'get_comb_alloc_content'o'res
+	    a'run_comb'req a'run_comb'ack
+    		a'run_comb'i'redex_addr a'run_comb'o'res
+	    a'run_prim'req a'run_prim'ack a'run_prim'o'res
+	    a'set_alloc'req a'set_alloc'ack a'set_alloc'i'idx a'set_alloc'i'addr
+	//
+	, combinator_unit clk reset
+	    a'get_comb_alloc_count'i'comb a'get_comb_alloc_count'o'cnt
+	    a'get_comb_arity'i'comb a'get_comb_arity'o'cnt a'set_comb'req
+	    a'set_comb'ack a'set_comb'i'comb
+	    a'set_alloc'req a'set_alloc'ack a'set_alloc'i'idx a'set_alloc'i'addr
+	    a'run_comb'req a'run_comb'ack
+		a'run_comb'i'redex_addr a'run_comb'o'res
+	    a'get_alloc'req a'get_alloc'ack a'get_alloc'i'idx a'get_alloc'o'addr
+	    a'get_comb_alloc_content'req a'get_comb_alloc_content'ack
+		a'get_comb_alloc_content'i'idx a'get_comb_alloc_content'o'res
+	    arg_addrs
+	//
+	, primitive_unit clk reset
+	    a'get_prim_arity'i'pfn a'get_prim_arity'o'cnt
+	    a'set_prim'req a'set_prim'ack a'set_prim'i'prim a'run_prim'req
+	    a'run_prim'ack a'run_prim'o'res
+	    arg_addrs
+	    p'mem_read'req p'mem_read'ack p'mem_read'i'p p'mem_read'o'dout
+	    p'mem_write'req p'mem_write'ack p'mem_write'i'p p'mem_write'i'din
+	    p'mem_alloc'req p'mem_alloc'ack p'mem_alloc'o'p
+	//
+	, arg_unit clk reset
+	    a'set_arg'req a'set_arg'ack a'set_arg'i'idx a'set_arg'i'addr
+	    arg_addrs
+	//
+	// Merge memory interfaces
+	//
+	, fork_mem_read clk reset
+	    a'mem_read'req a'mem_read'ack a'mem_read'i'p a'mem_read'o'dout
+	    r'mem_read'req r'mem_read'ack r'mem_read'i'p r'mem_read'o'dout
+	    p'mem_read'req p'mem_read'ack p'mem_read'i'p p'mem_read'o'dout
+	, fork_mem_write  clk reset
+	    a'mem_write'req a'mem_write'ack a'mem_write'i'p a'mem_write'i'din
+	    r'mem_write'req r'mem_write'ack r'mem_write'i'p r'mem_write'i'din
+	    p'mem_write'req p'mem_write'ack p'mem_write'i'p p'mem_write'i'din
+	, fork_alloc clk reset
+	    a'mem_alloc'req a'mem_alloc'ack a'mem_alloc'o'p
+	    r'mem_alloc'req r'mem_alloc'ack r'mem_alloc'o'p
+	    p'mem_alloc'req p'mem_alloc'ack p'mem_alloc'o'p
+];
+pcompile reduction_engine;
+
+//let p = flfun2pexlif reduction_engine;
+
+//STE_debug (pexlif2fsm p);

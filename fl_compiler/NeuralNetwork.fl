@@ -1,0 +1,63 @@
+cload "mk_rom3.fl";
+
+
+forward_declare {mul1 :: (int list) -> (int list) -> int};
+let mul1 mr v =
+    mr = [] => 0 |
+    ((hd mr)*(hd v)) + (mul1 (tl mr) (tl v))
+;
+forward_declare {mmult :: ((int list) list) -> (int list) -> (int list)};
+let mmult M v =
+    M = [] => [] |
+    (mul1 (hd M) v):(mmult (tl M) v)
+;
+forward_declare {ReLU :: (int list) -> (int list)};
+let ReLU v =
+    v = [] => [] |
+    let h = hd v in
+    (h >= 0 => h | 0):(ReLU (tl v))
+;
+let NN_stage M v = ReLU (mmult M v);
+forward_declare
+    {NeuralNetwork :: (((int list) list) list) -> (int list) -> (int list)}
+;
+let NeuralNetwork Ms vec =
+    Ms = [] => vec |
+    NeuralNetwork (tl Ms) (NN_stage (hd Ms) vec)
+;
+
+let mr = [1,2];
+let v = [3,4];
+let q = mul1 mr v;
+mk_cephalopode_rom (sprintf "_mul1_M%d.rom" (log2 MEM_SIZE)) "q" T;
+
+let M = [
+    [
+        [-4,9],
+        [0,-3]
+    ],
+    [
+        [-9,5],
+        [2,-1]
+    ],
+    [
+        [5,3]
+    ]
+];
+let answer = 144;
+
+let M = [
+    [
+	[-4,9]
+    ],
+    [
+	[2]
+    ]
+];
+let answer = 48;
+
+let main = (hd (NeuralNetwork M [3,4])) = answer;
+
+mk_cephalopode_rom (sprintf "_NN_M%d.rom" (log2 MEM_SIZE)) "main" T;
+
+

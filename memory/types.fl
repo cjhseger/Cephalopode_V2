@@ -1,0 +1,124 @@
+load (DIR^"../types.fl");
+
+let ROM_LATENCY = 2;  // Phases of latency for ROM memory access
+let ROM_WIDTH = get_hw_type_size "node";
+let ROM_LINES = ROM_SIZE;
+let ROM_ADDR_SZ = bits_needed (ROM_LINES-1);
+TYPE "rom_addr" ROM_ADDR_SZ;
+
+
+let RAM_LATENCY = 1;            // Phases of latency for main memory access
+let RAM_SIZE = 2*MEM_SIZE;
+
+
+let CTRL_RAM_WORD_SIZE = 32;    // Size of ctrl word
+let cRAM_LATENCY = 1;           // Phases of latency for ctrl-memory access
+
+STRUCT "ctrl" [("live", "bit"), ("saved", "bit")];
+TYPE "ctrl_word" CTRL_RAM_WORD_SIZE;
+
+let CTRL_SZ = get_hw_type_size "ctrl";
+let CTRL_BANKS = CTRL_RAM_WORD_SIZE/CTRL_SZ;
+let PAIR_ADDR_SZ = log2 CTRL_BANKS;
+let CTRL_ADDR_SZ = ADDR_SZ-PAIR_ADDR_SZ;
+let CRAM_SIZE = MEM_SIZE/CTRL_BANKS;
+let CRAM_SIZE1 = CRAM_SIZE-1;
+
+TYPE "eaddr" (ADDR_SZ+1);
+TYPE "paddr" PAIR_ADDR_SZ;
+TYPE "caddr" CTRL_ADDR_SZ;
+
+let MARK_RAM_WORD_SIZE = 32;    // Size of mark word
+let mRAM_LATENCY = 1;           // Phases of latency for mark-memory access
+
+let uRAM_LATENCY = 1;           // Phases of latency for up-memory access
+
+TYPE "mark_word" MARK_RAM_WORD_SIZE;
+
+let MARK_SZ = 1;
+let MARK_BANKS = MARK_RAM_WORD_SIZE/MARK_SZ;
+let BIT_ADDR_SZ = log2 MARK_BANKS;
+let MARK_ADDR_SZ = ADDR_SZ-BIT_ADDR_SZ;
+let MRAM_SIZE = MEM_SIZE/MARK_BANKS;
+let MRAM_SIZE1 = MRAM_SIZE-1;
+
+TYPE "baddr" BIT_ADDR_SZ;
+TYPE "maddr" MARK_ADDR_SZ;
+
+// Useful functions in memory module.
+
+let addr2raddr {a::addr} =
+    let a_sz = get_hw_type_size "addr" in
+    let r_sz = get_hw_type_size "rom_addr" in
+    r_sz > a_sz => {(ZX a) :: rom_addr} |
+    frombits (lastn ROM_ADDR_SZ (tobits a))
+;
+
+let get_c_row_addr {addr::addr} =
+    {frombits (butlastn PAIR_ADDR_SZ (tobits addr)) :: caddr}
+;
+
+let get_pair_addr {addr::addr} =
+    {frombits (lastn PAIR_ADDR_SZ (tobits addr)) :: paddr}
+;
+
+// Extract control pair from a control word.
+let extract_ctrl {cw::ctrl_word} {block::paddr} =
+    letrec sel i (b1:b0:bs) =
+	let ct = {(frombits [b1,b0])::ctrl} in
+	(SX (block '=' ''i) '&' ct) '|' (sel (i-1) bs)
+     /\    sel i [] = {'0:: ctrl}
+    in
+    sel (CTRL_BANKS-1) (tobits cw)
+;
+
+// Compute the final address based on the 'saved' bit
+let select_addr saved {addr::addr} = {frombits ((tobits addr)@[saved])::eaddr};
+
+// Replace a control pair in a control word.
+let replace {cw::ctrl_word} {block::paddr} {new_ctrl::ctrl} =
+    let new_bits = tobits new_ctrl in
+    let sel i ch = IF (block '=' ''i) THEN new_bits ELSE ch in
+    let r = flat (map2 sel ((CTRL_BANKS-1) downto 0) (cluster 2 (tobits cw))) in
+    {frombits r :: ctrl_word}
+;
+
+
+// Copy all the 'new' fields to the 'saved' field.
+let copy_new_to_save {cw::ctrl_word} =
+    let live_mask =
+	let mk1 n = 2**(2*n-1) in
+	let masks = map mk1 (1 upto CTRL_BANKS) in
+	itlist (defix intOR) masks 0
+    in
+    let tmp = cw '&' ''live_mask in
+    tmp '|' (tmp '>>' '1)
+;
+
+let node2addr {nd::node} =
+    let raw = lastn (get_hw_type_size "addr") (tobits nd) in
+    {(frombits raw) :: addr}
+;
+
+let get_maddr {addr::addr} =
+    {frombits (butlastn BIT_ADDR_SZ (tobits addr))::maddr}
+;
+
+let get_baddr {addr::addr} =
+    {frombits (lastn BIT_ADDR_SZ (tobits addr))::baddr}
+;
+
+let extract_mark_bit {mw::mark_word} {baddr::baddr} =
+    letrec sel i (m:ms) =
+	((baddr '=' ''i) '&' m) '|' (sel (i-1) ms)
+     /\    sel i [] = {'0:: bit}
+    in
+    sel (MARK_BANKS-1) (tobits mw)
+;
+
+// Replace a mark bit in a mark word.
+let mark_replace {mw::mark_word} {baddr::baddr} {new::bit} =
+    let sel i b = IF (baddr '=' ''i) THEN new ELSE b in
+    let r = map2 sel ((MARK_BANKS-1) downto 0) (tobits mw) in
+    {frombits r :: mark_word}
+;

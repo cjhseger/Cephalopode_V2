@@ -1,0 +1,17 @@
+cload (DIR^"../../types.fl");
+cload (DIR^"../reduction_types.fl");
+cload (DIR^"combinator_list.fl");
+
+let MUTEX_ENUM = ENUM;
+
+
+bifrost_load "comb_unit.bfst" T;
+
+let p = bundle_comb_unit;
+
+wtime (p fseq 1);
+
+
+IDV p "DB_qqq" [];
+
+

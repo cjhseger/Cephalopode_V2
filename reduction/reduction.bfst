@@ -1,0 +1,75 @@
+#include "reduction.binc"
+
+module reduction;
+protocol big_proto;
+
+action mem_unit:MemUnit provided by external via mem_proto;
+
+action uRAM_read:uRAMRead provided by external via std_proto;
+action uRAM_write:uRAMWrite provided by external via std_proto;
+
+actiontype RecordStatus = status:Int -> () reading [] writing [];
+action record_status:RecordStatus provided by external via std_proto;
+
+
+function main : gp_in:GraphPtr -> gp_out:GraphPtr
+{
+    var Addr            p, up;
+    var Node            n;
+    var GraphPtr    new_p_up;
+    var bit         in_indir;
+ 
+    p = gp_in-->p;
+    up = gp_in-->up;
+    in_indir = 0;
+
+    do record_status 1;
+ 
+    while(in_indir | ~(do pause))
+    {
+        n = do_mem_read p;
+	do uRAM_write p up;
+        in_indir = 0;
+ 
+        if(n-->ntype == G_APP)
+        {
+            up = p;
+            p = n-->left;
+        }
+        else if(n-->ntype == G_INDIR)
+        {
+            p = n-->left;
+            in_indir = 1;
+        }
+        else if(n-->ntype == G_COMB)
+        {
+            new_p_up = do comb_unit n p up;
+            p = new_p_up-->p;
+            up = new_p_up-->up;
+        }
+        else if(n-->ntype == G_PRIM)
+        {
+            new_p_up = do prim_unit n p up;
+            p = new_p_up-->p;
+            up = new_p_up-->up;
+        }
+        else if(up != NULL)
+        {
+            // swap rule, i.e. "the trick"
+            p = up;
+            n = do_mem_read p;
+            (n-->left, n-->right) = (n-->right, n-->left);
+            do_mem_write p n;
+            up = p;
+            p = n-->left;
+        }
+        else
+        {
+            // Done! Somehow signal this, later.
+            do record_status 2;
+        }
+    }
+    gp_out-->p = p;
+    gp_out-->up = up;
+    return;
+}

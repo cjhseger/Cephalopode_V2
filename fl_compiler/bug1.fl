@@ -1,0 +1,170 @@
+cload "mk_rom3.fl";
+
+use_optimizer := T;
+use_L	      := T;
+use_Cn	      := T;
+use_Spp	      := T;
+forward_declare {mul1 :: (int list) -> (int list) -> int};
+let mul1 mr v =
+    mr = [] => 0 |
+    v  = [] => 0 |
+    ((hd mr)*(hd v)) + (mul1 (tl mr) (tl v))
+;
+let l1 = [2,3];
+let l2 = [3,4];
+let main = mul1 l1 l2;
+mk_cephalopode_rom (sprintf "_d_mul1_%d.rom" (log2 MEM_SIZE)) "main" T;
+
+
+DBG_pre_process "main";
+DBG_rearrange "main";
+
+
+
+
+
+
+
+
+
+forward_declare {mul1 :: (int list) -> (int list) -> int};
+let mul1 mr v =
+    mr = [] => 0 |
+    ((hd mr)*(hd v)) + (mul1 (tl mr) (tl v))
+;
+forward_declare {mmult :: ((int list) list) -> (int list) -> (int list)};
+let mmult M v =
+    M = [] => [] |
+    (mul1 (hd M) v):(mmult (tl M) v)
+;
+let main = hd (mmult [[2],[4]] [1,3]);
+mk_cephalopode_rom (sprintf "_mmult_M%d.rom" (log2 MEM_SIZE)) "main" T;
+
+DBG_pre_process "main";
+DBG_rearrange "main";
+
+
+let hdhd {l :: (int list) list} = 
+    l = [] => 99 |
+    hd (hd l)
+;
+let ll = [[1],[2]];
+let main = hdhd ll;
+mk_cephalopode_rom (sprintf "_hdhd%d.rom" (log2 MEM_SIZE)) "main" T;
+
+
+
+forward_declare {mul2 :: (int list) -> (int list) -> int};
+let mul2 mr v =
+    (mr = []) OR (v  = []) => 0 |
+    ((hd mr)*(hd v)) + (mul2 (tl mr) (tl v))
+;
+let l1 = [1,2];
+let l2 = [3,4];
+let main = mul2 l1 l2;
+mk_cephalopode_rom (sprintf "_d_mul2_%d.rom" (log2 MEM_SIZE)) "main" T;
+
+DBG_pre_process "main";
+DBG_rearrange "main";
+
+%%%%%%%%%%
+let db = pre_process "main";
+let forced_db = build_forced_db db;
+forced_db;
+
+let strictness_db = db;
+db;
+
+let uid = get_userdef_id "main";
+let E0 = snd (get_userdef_expression uid);
+E0;
+val (APPLY E1 E) = E0;
+draw_term E;
+
+letrec process args (APPLY E1 E2) = process (E2:args) E1
+ /\   process args (CONS E1 E2) = CONS (process [] E1) (process [] E2)
+ /\    process args (LAMBDA v E) =
+    let cur = LAMBDA v (process [] E) in
+    letrec build1 (arg:args) cur =
+	let arg' = process [] arg in
+	build1 args (APPLY cur arg')
+     /\    build1 [] cur = cur
+    in
+    build1 args cur
+ /\   process args  fn assuming (is_ceph_primitive fn) =
+    let strictness = primtive_strictness fn then
+    val (new_args, args) =
+	let la = length args in
+	let ls = length strictness in
+	la >= ls => ([], args) |
+	let new_args =
+	    map (\i. sprintf "__ArG%d" i) (1 upto (ls-la))
+	then
+	let args' = args@(map VAR (rev new_args)) in
+	(new_args, args')
+    in
+    letrec build2 (st:sts) (arg:args) cur =
+	(NOT st) OR (is_forced forced_db arg) =>
+	    let arg' = process [] arg in
+	    build2 sts args (APPLY cur arg')
+	|
+	let arg' = process [] arg in
+	build2 sts args (APPLY arg' cur)
+     /\    build2 [] (arg:args) cur =
+	let arg' = process [] arg in
+	build2 [] args (APPLY cur arg')
+     /\    build2 [] [] cur = cur
+     /\    build2 strs [] cur =
+	    eprintf "|strictness| > |args| for %s" (DBGterm fn)
+    in
+    itlist (\n.\e. (LAMBDA n e)) new_args (build2 strictness args fn)
+ /\   process args  (LEAF (USERDEF uid)) =
+    let idx = find_first0 (\p. fst p = uid) strictness_db then
+    idx = 0 => 
+	letrec build3 (arg:args) cur =
+	    let arg' = process [] arg in
+	    build3 args (APPLY cur arg')
+	 /\    build3 [] cur = cur
+	in
+	build3 args (LEAF (USERDEF uid))
+    |
+    val (_, _, strictness) = el idx strictness_db then
+    letrec build4 (st:sts) (arg:args) cur =
+	let arg' = process [] arg in
+	(NOT st) OR (is_forced forced_db arg) =>
+	    build4 sts args (APPLY cur arg')
+	|
+	    build4 sts args (APPLY arg' cur)
+     /\    build4 [] (arg:args) cur =
+	let arg' = process [] arg in
+	build4 [] args (APPLY cur arg')
+     /\    build4 [] [] cur = cur
+    in
+    build4 strictness args (LEAF (USERDEF uid))
+ /\   process args other = other
+;
+
+draw_term E;
+process [] E;
+
+let uid = 3703;
+val (APPLY El1 a2) = E;
+val (APPLY (LEAF (USERDEF uid)) a1) = El1;
+uid;
+let args = [a1,a2];
+let idx = find_first0 (\p. fst p = uid) strictness_db;
+idx;
+val (_, _, strictness) = el idx strictness_db;
+strictness;
+
+draw_term a1;
+let a1' = process [] a1;
+a1';
+
+val (APPLY Fl1 b2) = a1;
+val (APPLY fn b1) = Fl1;
+
+fn;
+(is_ceph_primitive fn);
+    let strictness = primtive_strictness fn then
+

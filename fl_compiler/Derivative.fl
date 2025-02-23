@@ -1,0 +1,77 @@
+cload (DIR^"mk_rom3.fl");
+
+forward_declare {derivative :: (int list) -> (int list)};
+let derivative l =
+    l = [] => [] |
+    let l' = tl l in
+    l' = [] => [] |
+    (hd l' - hd l):(derivative l')
+;
+
+forward_declare {lsum::(int list) -> int};
+let lsum l = l = [] => 0 | (hd l) + (lsum (tl l));
+
+//let main = ((lsum (derivative [81,81,72,17,13,31,62,65,2,86,53,82,31,98,8,21]))+60) = 0;
+
+let main = (lsum (derivative [])) = 0;
+mk_cephalopode_rom "_Derivative0.rom" "main";
+let main = (lsum (derivative [81])) = 0;
+mk_cephalopode_rom "_Derivative1.rom" "main";
+let main = (lsum (derivative [81,81])) = 0;
+mk_cephalopode_rom "_Derivative2.rom" "main";
+let main = ((lsum (derivative [81,81,80]))) = -1;
+mk_cephalopode_rom "_Derivative3.rom" "main";
+let main = (lsum (derivative [81,81,80,121])) = 40;
+mk_cephalopode_rom "_Derivative4.rom" "main";
+let main = ((lsum (derivative [81,81,72,17,13,31]))) = -50;
+mk_cephalopode_rom "_Derivative6.rom" "main";
+
+let xs = [49, 97, 53, 5, 33, 65, 62, 51, 100, 38];
+let answer = -11;
+let main = (lsum (derivative xs)) = answer;
+mk_cephalopode_rom "_Derivative10.rom" "main";
+
+let xs = [49, 97, 53, 5, 33, 65, 62, 51, 100, 38, 61, 45, 74, 27, 64, 17, 36, 17, 96, 12];
+let answer = -37;
+let main = (lsum (derivative xs)) = answer;
+mk_cephalopode_rom "_Derivative20.rom" "main";
+
+let xs = [49,97,53,5,33,65,62,51,100,38,61,45,74,27,64,17,36,17,96,12,79,32,68,90,77,18,39,12,93,9];
+let answer = -40;
+let main = (lsum (derivative xs)) = answer;
+mk_cephalopode_rom "_Derivative30.rom" "main";
+
+let xs = [49,97,53,5,33,65,62,51,100,38,61,45,74,27,64,17,36,17,96,12,79,32,68,90,77,18,39,12,93,9,87,42,60,71,12,45,55,40,78,81];
+let answer = 32;
+let main = (lsum (derivative xs)) = answer;
+mk_cephalopode_rom "_Derivative40.rom" "main";
+
+let xs = [49,97,53,5,33,65,62,51,100,38,61,45,74,27,64,17,36,17,96,12,79,32,68,90,77,18,39,12,93,9,87,42,60,71,12,45,55,40,78,81,26,70,61,56,66,33,7,70,1,11];
+let answer = -38;
+let main = (lsum (derivative xs)) = answer;
+mk_cephalopode_rom "_Derivative50.rom" "main";
+
+let xs = [49, 97, 53, 5, 33, 65, 62, 51, 100, 38, 61, 45, 74, 27, 64, 17, 36, 17, 96, 12, 79, 32, 68, 90, 77, 18, 39, 12, 93, 9, 87, 42, 60, 71, 12, 45, 55, 40, 78, 81, 26, 70, 61, 56, 66, 33, 7, 70, 1, 11, 92, 51, 90, 100, 85, 80, 0, 78, 63, 42, 31, 93, 41, 90, 8, 24, 72, 28, 30, 18, 69, 57, 11, 10, 40, 65, 62, 13, 38, 70, 37, 90, 15, 70, 42, 69, 26, 77, 70, 75, 36, 56, 11, 76, 49, 40, 73, 30, 37, 23];
+let answer = -26;
+let main = (lsum (derivative xs)) = answer;
+mk_cephalopode_rom "_Derivative100.rom" "main";
+
+let xs = [49,97,53,5,33,65,62,51,100,38,61,45,74,27,64,17,36,17,96,12,79,32,68,90,77,18,39,12,93,9,87,42,60,71,12,45,55,40,78,81,26,70,61,56,66,33,7,70,1,11,92,51,90,100,85,80,0,78,63,42,31,93,41,90,8,24,72,28,30,18,69,57,11,10,40];
+let answer = -9;
+let main = (lsum (derivative xs)) = answer;
+mk_cephalopode_rom "_Derivative75.rom" "main";
+
+
+//length xs;
+//firstn 50 xs;
+(lsum (derivative xs));
+
+//DBG_pre_process "main";
+//DBG_rearrange "main";
+//DBG_compile "main";
+
+
+//let answer = -26;
+
+
+quit;

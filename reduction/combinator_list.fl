@@ -1,0 +1,246 @@
+begin_abstype;
+
+lettype pointer = redex_addr | arg_addr int | alloc_addr int;
+lettype operation = mk_indir pointer | mk_appl pointer pointer;
+
+//
+// Convenient list of combinators, their arity, allocation need and
+// their update functions.
+//
+let combinator_list = 
+    let res = [
+        // Name	Arguments Allocs ops
+        (C_I, 1, 0,
+	    //         @         ==>      =            
+	    //        / \                  \           
+	    //       I   X                  X          
+	    //                                         
+	    [(redex_addr --- mk_indir (arg_addr 0))]
+	),
+    	(C_K, 2, 0,
+	    //         @         ==>      =            
+	    //        / \                  \           
+	    //       @   y                  x          
+	    //      / \                                
+	    //     K   x                               
+	    //                                         
+	    [(redex_addr --- mk_indir (arg_addr 0))]
+	),
+    	(C_S, 3, 2,
+	    //       @                    @             
+	    //      / \                  / \            
+	    //     @   X                /   \           
+	    //    / \       ==>        @     @          
+	    //   @   G                / \   / \         
+	    //  / \                  F   \ G   \        
+	    // S   F                      \____ X       
+	    //                                          
+	    [
+		(alloc_addr 0 --- mk_appl (arg_addr 0) (arg_addr 2)),
+		(alloc_addr 1 --- mk_appl (arg_addr 1) (arg_addr 2)),
+		(redex_addr       --- mk_appl (alloc_addr 0) (alloc_addr 1))
+	    ]
+	),
+    	(C_SPRIME, 4, 3,
+	    //                                          
+	    //         @                  @__           
+	    //        / \                /   \          
+	    //       @   P              @     @         
+	    //      / \      ==>       / \   / \        
+	    //     @   O              M   @ O   |       
+	    //    / \                    / \    |       
+	    //   @   N                  N   \   |       
+	    //  / \                          \  |       
+	    // S'  M                          \ |       
+	    //                                 \|       
+	    //                                  P       
+	    //  
+	    [
+		(alloc_addr 0 --- mk_appl (arg_addr 1) (arg_addr 3)),
+		(alloc_addr 1 --- mk_appl (arg_addr 0) (alloc_addr 0)),
+		(alloc_addr 2 --- mk_appl (arg_addr 2) (arg_addr 3)),
+		(redex_addr       --- mk_appl (alloc_addr 1) (alloc_addr 2))
+	    ]
+	),
+    	(C_C, 3, 1,
+	    //       @                    @             
+	    //      / \                  / \            
+	    //     @   y                @   x           
+	    //    / \       ==>        / \              
+	    //   @   x                f   y             
+	    //  / \                                     
+	    // C   f                                    
+	    //                                          
+	    [
+		(alloc_addr 0 --- mk_appl (arg_addr 0) (arg_addr 2)),
+		(redex_addr       --- mk_appl (alloc_addr 0) (arg_addr 1))
+	    ]
+	),
+    	(C_CPRIME, 4, 2,
+	    //         @                  @             
+	    //        / \                / \            
+	    //       @   P              @   O           
+	    //      / \                / \              
+	    //     @   O              M   @             
+	    //    / \       ==>          / \            
+	    //   @   N                  N   P           
+	    //  / \                                     
+	    // C'  M                                    
+	    //                                          
+	    [
+		(alloc_addr 0 --- mk_appl (arg_addr 1) (arg_addr 3)),
+		(alloc_addr 1 --- mk_appl (arg_addr 0) (alloc_addr 0)),
+		(redex_addr       --- mk_appl (alloc_addr 1) (arg_addr 2))
+	    ]
+	),
+    	(C_B, 3, 1,
+	    //       @                    @             
+	    //      / \                  / \            
+	    //     @   X                F   @           
+	    //    / \       ==>            / \          
+	    //   @   G                    G   X         
+	    //  / \                                     
+	    // B   F                                    
+	    //                                          
+	    [
+		(alloc_addr 0 --- mk_appl (arg_addr 1) (arg_addr 2)),
+		(redex_addr       --- mk_appl (arg_addr 0) (alloc_addr 0))
+	    ]
+	),
+    	(C_BSTAR, 4, 2,
+	    //         @                  @             
+	    //        / \                / \            
+	    //       @   x              c   @           
+	    //      / \                    / \          
+	    //     @   g                  f   @         
+	    //    / \       ==>              / \        
+	    //   @   f                      g   x       
+	    //  / \                                     
+	    // B*  c                                    
+	    //
+	    [
+		(alloc_addr 0 --- mk_appl (arg_addr 2) (arg_addr 3)),
+		(alloc_addr 1 --- mk_appl (arg_addr 1) (alloc_addr 0)),
+		(redex_addr       --- mk_appl (arg_addr 0) (alloc_addr 1))
+	    ]
+	),
+	(C_S1, 2, 0,
+	    //                                          
+	    //         @                  @             
+	    //        / \                / \            
+	    //       @   A              /   \           
+	    //      / \                A     fn          
+	    //     S1  fn    
+	    [
+		redex_addr  --- mk_appl (arg_addr 1) (arg_addr 0)
+	    ]
+	),
+	(C_S2, 3, 1,
+	    //                                          
+	    //           @                 @            
+	    //          / \               / \            
+	    //         @   B             B   @          
+	    //        / \                   / \         
+	    //       @   A                 A   fn        
+	    //      / \                                  
+	    //     S2  fn    
+	    [
+		(alloc_addr 0 --- mk_appl (arg_addr 1) (arg_addr 0)),
+		redex_addr  --- mk_appl (arg_addr 2) (alloc_addr 0)
+	    ]
+	),
+    	(C_BPRIME, 4, 2,
+	    //                                          
+	    //         @                  @             
+	    //        / \                / \            
+	    //       @   x              /   \           
+	    //      / \                @     @          
+	    //     @   g              / \   / \         
+	    //    / \       ==>      c   f g   x        
+	    //   @   f                                  
+	    //  / \                                     
+	    // B'  c                                    
+	    //                                          
+	    [
+		(alloc_addr 0 --- mk_appl (arg_addr 0) (arg_addr 1)),
+		(alloc_addr 1 --- mk_appl (arg_addr 2) (arg_addr 3)),
+		(redex_addr       --- mk_appl (alloc_addr 0) (alloc_addr 1))
+	    ]
+	),
+        (C_Y, 1, 0,
+	    //         @                  @<-+          
+	    //        / \                / \ |          
+	    //       Y   f              f   -+          
+	    //
+	    [(redex_addr --- mk_appl (arg_addr 0) redex_addr)]
+	)
+    ] in
+    let max_args = itlist (\(op,arg,allocs,ops).\r. max arg r) res 0 in
+    max_args > MAX_ARITY =>
+	    error "Combinator with more than MAX_ARITY arguments. (%d>%d)"
+	    max_args MAX_ARITY
+    |
+    let max_allocs = itlist (\(op,arg,allocs,ops).\r. max allocs r) res 0 in
+    max_allocs > MAX_ALLOC =>
+	    error "Combinator with more than MAX_ALLOC arguments. (%d>%d)"
+	    max_allocs MAX_ALLOC
+    |
+    res
+;
+
+let get_comb_arity op =
+    itlist (\(o,ar,al).\e. IF (op '=' o) THEN ''ar ELSE e) combinator_list '0
+;
+
+let get_comb_allocs op =
+    itlist (\(o,ar,al,p).\e. IF (op '=' o) THEN ''al ELSE e)
+           combinator_list {'0::alloc_cnt}
+;
+
+let get_operation target comb p a1 a2 a3 a4 n1 n2 n3 =
+    let pointer2arg (redex_addr) = p
+     /\ pointer2arg (arg_addr i) =
+	i = 0 => a1 | i = 1 => a2 | i = 2 => a3 | i = 3 => a4 |
+        eprintf "arg_addr with too large index (%d)" i
+     /\ pointer2arg (alloc_addr i) =
+	i = 0 => n1 | i = 1 => n2 | i = 2 => n3 |
+        eprintf "alloc_addr with too large index (%d)" i
+    in
+    //
+    let is_my_alloc (lhs,rhs) = lhs = target
+     /\ is_my_alloc other = F
+    in
+    //
+    let keep (op,args,allocs,ops) =
+	let rel_ops = filter is_my_alloc ops then
+	rel_ops = [] => [] | [(op, snd (hd rel_ops))]
+    in
+    let rel_assignments = flatmap keep combinator_list in
+    let mk1 (op,(mk_indir p)) =
+	let nd = {'0::node}<--ntype ? G_INDIR
+			   <--left ?  (pointer2arg p)
+	in
+	((SX (comb '=' op)) '&' nd)
+     /\ mk1 (op,(mk_appl x y)) =
+	let nd = {'0::node}<--ntype ? G_APP
+			   <--left ? (pointer2arg x)
+			   <--right ? (pointer2arg y)
+	in
+	((SX (comb '=' op)) '&' nd)
+    in
+    let conjs = map mk1 rel_assignments in
+    length conjs = 1 => hd conjs |
+    OR_n conjs
+;
+
+let get_comb_alloc idx comb p a1 a2 a3 a4 n1 n2 n3 =
+    let target = alloc_addr (idx-1) in
+    get_operation target comb p a1 a2 a3 a4 n1 n2 n3
+;
+
+let get_comb_redex comb p a1 a2 a3 a4 n1 n2 n3 =
+    let target = redex_addr in
+    get_operation target comb p a1 a2 a3 a4 n1 n2 n3
+;
+
+end_abstype get_comb_arity get_comb_allocs get_comb_alloc get_comb_redex;

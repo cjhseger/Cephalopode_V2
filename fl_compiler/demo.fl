@@ -1,0 +1,17 @@
+load "mk_rom.fl";
+
+letrec fac n = n = 0 => 1 | n* fac (n-1);
+let choose n r = fac n / (fac (n-r) * fac r);
+let expr = choose 4 2;
+
+mk_cephalopode_rom "_sel_ex.rom" "expr";
+
+
+
+
+
+letrec fac n = n = 0 => 1 | n* fac (n-1);
+let expr = fac 20;
+
+mk_cephalopode_rom "_big_fac.rom" "expr";
+

@@ -1,0 +1,139 @@
+#include "memory.binc"
+
+// External
+action mark_unit:MarkUnit provided by external via mark_proto;
+action set_snap_ready:SET_SNAP provided by external via set_snap_proto;
+action set_top_of_heap:SetTopOfHeap provided by external via std_proto;
+
+action gc_cnt_init:GcCntInit provided by external via std_proto;
+
+// Local
+action ROM_read:ROMRead provided by external via ROM_proto;
+
+action get_mem_state:MemStateGet provided by external via MemStateGet_proto;
+action set_mem_state:MemStateSet provided by external via MemStateSet_proto;
+
+action RAM_write:RAMWrite provided by external via RAM_proto;
+action RAM_read:RAMRead provided by external via RAM_proto;
+
+action cRAM_write:cRAMWrite provided by external via cRAM_wr_proto;
+action cRAM_read:cRAMRead provided by external via cRAM_rd_proto;
+
+ 
+// Useful macros (fl functions)
+define addr2raddr	= fl "\\a. addr2raddr a";
+define get_c_row_addr	= fl "\\a. get_c_row_addr a";
+define get_pair_addr	= fl "\\a. get_pair_addr a";
+
+define extract_ctrl	= fl "\\cw. \\block. extract_ctrl cw block";
+define select_addr	= fl "\\saved.\\addr. select_addr saved addr";
+define replace		= fl "\\cw. \\bl. \\new. replace cw bl new";
+define copy_new_to_save = fl "\\cw. copy_new_to_save cw";
+define node2addr	= fl "\\nd. node2addr nd";
+
+define cZERO		= fl "{'0:: caddr}" :: cAddr;
+define ctrlZERO		= fl "{'0:: ctrl_word}" :: cWord;
+
+module memory;
+protocol mem_proto;
+
+function main : op:Mem_op -> addr:Addr ->din:Node -> dout:Node
+{
+    var cAddr	ci;
+    var cWord	cline;
+    var bit	mode;
+    var bit	prepare_snap;
+    var cAddr	snap_prep_cnt;
+    var cWord	snap_prep_d;
+    var Addr	cnt;
+    var Addr	mi;
+    var Node	nd;
+    var Addr	ri;
+    var cAddr	c_row;
+    var pAddr	c_block;
+    var Ctrl	cw;
+    var eAddr	final_addr;
+    
+    (mode, prepare_snap, snap_prep_cnt) = do get_mem_state;
+
+    if( op == MEM_INIT ) {
+	mode = 0;
+	prepare_snap = 0;
+	snap_prep_cnt = cZERO;
+	// Initialize ctrl RAM (and cache)
+	foreach(ci in 0 ... CRAM_SIZE1) {
+	    do cRAM_write ci ctrlZERO;
+        }
+	// Initialize mark RAM
+	do_mark_init;
+	// Copy ROM to RAM
+	cnt = node2addr (do ROM_read (0::rAddr));
+	cnt++;
+	mi = 0::Addr;
+	for( ri = 1; ri <= cnt; ri++ ) {
+	    nd = do ROM_read (addr2raddr ri);
+	    do RAM_write (select_addr (0::bit) mi) nd;
+	    mi++;
+	}
+	do set_mem_state (mode, prepare_snap, snap_prep_cnt);
+	--%<--
+	do gc_cnt_init cnt;
+	do set_top_of_heap (cnt-1);
+	--%<--
+    //
+    } else if ( op == MEM_READ ) {
+	c_row = get_c_row_addr addr;
+	c_block = get_pair_addr addr;
+	cline = do cRAM_read c_row;
+	cw = extract_ctrl cline c_block;
+	final_addr = select_addr (cw-->live) addr;
+	dout = do RAM_read final_addr;
+    //
+    }
+  else if ( op == SNAP_MEM_READ ) {
+	c_row = get_c_row_addr addr;
+	c_block = get_pair_addr addr;
+	cline = do cRAM_read c_row;
+	cw = extract_ctrl cline c_block;
+	final_addr = select_addr cw-->saved addr;
+	dout = do RAM_read final_addr;
+    //
+    } else if ( op == MEM_WRITE ) {
+	c_row = get_c_row_addr addr;
+	c_block = get_pair_addr addr;
+	cline = do cRAM_read c_row;
+	cw = extract_ctrl cline c_block;
+	if( mode & (cw-->live == cw-->saved) ) {
+	    // Need to switch live location
+	    cw-->live = ~cw-->saved;
+	    cline = replace cline c_block cw;
+	    do cRAM_write c_row cline;
+	}
+	final_addr = select_addr cw-->live addr;
+	do RAM_write final_addr din;
+    } else if ( op == SNAP_PREPARE ) {
+	prepare_snap = 1;
+	mode = 0;
+	do set_mem_state (mode, prepare_snap, snap_prep_cnt);
+    } else if ( op == SNAP_TAKE ) {
+	mode = 1;
+	do set_snap_ready 0;
+	do set_mem_state (mode, prepare_snap, snap_prep_cnt);
+    }
+
+    if( prepare_snap ) {
+	snap_prep_d = do cRAM_read snap_prep_cnt;
+	snap_prep_d = copy_new_to_save snap_prep_d;
+	do cRAM_write snap_prep_cnt snap_prep_d;
+	if ( snap_prep_cnt == (CRAM_SIZE-1) ) {
+	    do set_snap_ready 1;
+	    snap_prep_cnt = cZERO;
+	    prepare_snap = 0;
+	} else {
+	    snap_prep_cnt++;
+	}
+	do set_mem_state (mode, prepare_snap, snap_prep_cnt);
+    }
+    return;
+}
+

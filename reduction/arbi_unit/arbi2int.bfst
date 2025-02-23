@@ -1,0 +1,55 @@
+#include "primitives.binc"
+
+// Actions
+action mem_unit:MemUnit provided by external via mem_proto;
+action mem_alloc:MemAlloc provided by external via alloc_proto;
+
+action arb_rf_length:ArbRfLength provided by external via std_proto;
+action arb_rf_get:ArbRfGet[2] provided by external via std_proto;
+
+// Macros to access HFL functions
+define MAKE_INT = (fl "\\msb.\\lsb. MAKE_INT msb lsb");
+define MAKE_SINT = (fl "\\lsb. MAKE_SINT lsb");
+
+
+module arbi2int;
+protocol std_proto;
+
+function main : idx:index -> res:Node
+{
+    var alen sz;
+    var Addr cur;
+    var alen i;
+    var Node nd;
+
+    sz = do arb_rf_length idx;
+    if( sz <= 2 ) {
+	// Fits in a G_INT
+	res = 0;
+	res-->ntype = G_INT;
+	if( sz == 1 ) {
+	    res-->int = MAKE_SINT (do arb_rf_get idx 0);
+	    return;
+	} else {
+	    res-->int = MAKE_INT (do arb_rf_get idx 1) (do arb_rf_get idx 0);
+	    return;
+	}
+    } else {
+	// Need a list of G_AINTs
+	res = 0;
+	cur = 0;
+	for(i = sz-1; i >= 1; i = i-1) {
+	    nd = 0;
+	    nd-->ntype = G_AINT;
+	    nd-->aint  = do arb_rf_get idx i;
+	    nd-->left  = cur; 
+	    cur = do mem_alloc;
+	    do_mem_write cur nd;
+	}
+	res-->ntype = G_AINT;
+	res-->aint  = do arb_rf_get idx 0;
+	res-->left  = cur;
+	return;
+    }
+}
+

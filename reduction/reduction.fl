@@ -1,0 +1,8 @@
+load "idv.fl";
+
+let load_files = map (\f.DIR^f) ["../types.fl", "reduction_types.fl"];
+
+bifrostfl2bundle "reduction" load_files T;
+
+quit;
+

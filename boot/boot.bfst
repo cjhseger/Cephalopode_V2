@@ -1,0 +1,36 @@
+#include "../cephalopode_types.binc"
+
+action mem_unit:MemUnit provided by external via mem_proto;
+action boot_freelist_checkout:FreelistCheckout provided by external
+		via freelist_proto
+;
+action boot_freelist_checkin:FreelistCheckin provided by external
+		via freelist_proto
+;
+action gc_unit: (() reading [] writing []) provided by external via big_proto;
+action manager: (() reading [] writing []) provided by external via big_proto;
+
+module boot;
+protocol big_proto;
+
+function main : ()
+{
+    var Addr freeptr;
+
+    // initialize memory
+    do_mem_init;
+
+    --%<--
+
+    // Set freelist to be empty
+    do boot_freelist_checkout;
+    do boot_freelist_checkin 0;
+
+    --%<--
+
+    // start things
+    do gc_unit;
+    do manager;
+
+    return;
+}

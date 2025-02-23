@@ -1,0 +1,12 @@
+state COMB;	    // Combinator currently executing
+state PRIM;	    // Primitive function currently executing
+state ALLOC;	    // The pre-allocated graph nodes register addresses
+state ARGS;	    // The arguments collected
+state ARBRF;        // Content of arbitrary precision register file.
+
+define imm_proto  = {{ data = "immediate" }};
+
+type Arity => "arity";
+type AllocCount => "alloc_cnt";
+
+

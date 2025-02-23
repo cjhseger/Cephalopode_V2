@@ -1,0 +1,124 @@
+cload "mk_rom3.fl";
+
+let my i = i/2;
+
+let q = my 12;
+DBG_pre_process "q";
+DBG_rearrange "q";
+DBG_compile "q";
+
+mk_cephalopode_rom "_err.rom" "q";
+
+
+
+forward_declare {merge :: (int list) -> (int list) -> (int list)};
+let merge l1 l2 =
+    l1 = [] => l2 |
+    l2 = [] => l1 |
+    let e1 = hd l1 in
+    let e2 = hd l2 in
+    e2 > e1 => (e1 : (merge (tl l1) l2)) |
+    e1 > e2 => (e2 : (merge l1 (tl l2))) |
+    (e1:e2:(merge (tl l1) (tl l2)))
+;
+
+forward_declare {split_list :: (int list) -> ((int list)#(int list))};
+let split_list l =
+    l = [] => [],[] |
+    let e = hd l in
+    let l' = tl l in
+    l' = [] => [e],[] |
+    let rem = split_list (tl l') in
+    (e:(fst rem)), ((hd l'):(snd rem))
+;
+
+forward_declare {merge_sort :: (int list) -> (int list)};
+let merge_sort l =
+    l = [] => [] |
+    (tl l) = [] => l |
+    let tmp = split_list l in
+    merge (merge_sort (fst tmp)) (merge_sort (snd tmp))
+;
+
+
+forward_declare {list_last :: (int list) -> int};
+let list_last l =
+    let rem = tl l in
+    rem = [] => hd l |
+    list_last rem
+;
+
+let xs = [3,6,1,4,-2];
+let answer = 8;
+
+let res =
+    let l = merge_sort xs in
+    let first = hd l in
+    let last = list_last l in
+    last-first
+;
+
+let main = (res = answer);
+
+DBG_pre_process "main";
+//DBG_rearrange "main";
+//DBG_compile "main";
+
+mk_cephalopode_rom "_err.rom" "main";
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+// Transpose matrix
+forward_declare {hds :: ((int list) list) -> (int list)};
+let hds l = l = [] => [] | (hd (hd l)):(hds (tl l));
+forward_declare {tls :: ((int list) list) -> ((int list) list)};
+let tls l = l = [] => [] | (tl (hd l)):(tls (tl l));
+forward_declare {transpose:: ((int list) list) -> ((int list) list)};
+let transpose rr =
+    hd rr = [] => [] |
+    (hds rr) : (transpose (tls rr))
+;
+
+// Dot product
+forward_declare {dot :: (int list) -> (int list) -> int};
+let dot v1 v2 =
+    v1 = [] => 0 |
+    ((hd v1)*(hd v2)) + (dot (tl v1) (tl v2))
+;
+
+// Helper functions
+forward_declare {vmult :: (int list) -> ((int list) list) -> (int list)};
+let vmult row cs =
+    cs = [] => [] |
+    (dot row (hd cs)):(vmult row (tl cs))
+;
+forward_declare {mmultT :: ((int list) list) -> ((int list) list) -> ((int list) list)};
+let mmultT M1 M2T =
+    M1 = [] => [] |
+    (vmult (hd M1) M2T):(mmultT (tl M1) M2T)
+;
+
+// Matrix multiplication
+let mmult M1 M2 = mmultT M1 (transpose M2);
+
+let M1 = [[1,2],[3,4]];
+let M2 = [[5,6],[7,8]];
+let answer = [[19,22],[43,50]];
+
+//let M1 = [[1]];
+//let M2 = [[2]];
+//let answer = [[2]];
+
+let main = (mmult M1 M2) = answer;
+//let main = matrix_same (mmult M1 M2) answer;
+
+//DBG_pre_process "main";
+//DBG_rearrange "main";
+//DBG_compile "main";
+
+mk_cephalopode_rom "_err.rom" "main";
+

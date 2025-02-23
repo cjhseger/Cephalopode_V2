@@ -1,0 +1,94 @@
+#include "../cephalopode_types.binc"
+
+define CRAM_SIZE = fl "''CRAM_SIZE";
+define CRAM_SIZE1 = fl "''CRAM_SIZE1";
+define MRAM_SIZE = fl "''MRAM_SIZE";
+define MRAM_SIZE1 = fl "''MRAM_SIZE1";
+
+type Ctrl => "ctrl";
+fields Ctrl [live:bit, saved:bit];
+
+type cWord => "ctrl_word";
+
+type rAddr => "rom_addr";
+type pAddr => "paddr";
+type cAddr => "caddr";
+type mAddr => "maddr";
+type bAddr => "baddr";
+type mWord => "mark_word";
+
+
+define ROM_proto	    = {{ data = "ackpulse", power = "clockgating" }};
+define RAM_proto	    = {{ data = "ackpulse", power = "clockgating" }};
+define mRAM_proto	    = {{ data = "ackpulse", power = "clockgating" }};
+define cRAM_rd_proto	    = {{ data = "immediate" }};
+define cRAM_wr_proto	    = {{ data = "ackpulse", power = "clockgating" }};
+define mcache_get_proto	    = {{ data = "immediate" }};
+define mcache_set_proto	    = {{ data = "ackpulse", power = "clockgating" }};
+define MemStateGet_proto    = {{ data = "immediate" }};
+define MemStateSet_proto    = {{ data = "ackpulse", power = "clockgating" }};
+define CcacheStateGet_proto = {{ data = "immediate" }};
+define CcacheStateSet_proto = {{ data = "ackpulse", power = "clockgating" }};
+
+
+state ROM;
+state RAM;
+state CRAM;
+state MRAM;
+state MCACHE;
+state TOP_OF_HEAP;
+state MSTATE;
+state CCSTATE;
+
+actiontype ROMRead = addr:rAddr -> data:Node reading [ROM] writing [];
+
+actiontype MemStateGet = (mode:bit,
+			  prepare_snap:bit,
+			  snap_prep_cnt:cAddr) reading [MSTATE] writing []
+;
+
+actiontype MemStateSet = (mode:bit,
+			  prepare_snap:bit,
+			  snap_prep_cnt:cAddr) -> () reading [] writing [MSTATE]
+;
+
+actiontype CcacheStateGet = (ctrl_cache_valid:bit,
+			     ctrl_cache_addr:cAddr,
+			     ctrl_cache_line:cWord
+			    ) reading [CCSTATE] writing []
+;
+
+actiontype CcacheStateSet = ( ctrl_cache_valid:bit,
+			      ctrl_cache_addr:cAddr,
+			      ctrl_cache_line:cWord
+			    ) -> () reading [] writing [CCSTATE]
+;
+
+actiontype RAMWrite = addr:eAddr -> data:Node -> () reading [] writing [RAM];
+actiontype RAMRead = addr:eAddr -> data:Node reading [RAM] writing [];
+
+actiontype cRAMWrite = addr:cAddr -> data:cWord -> () reading [] writing [CRAM];
+actiontype cRAMRead = addr:cAddr -> data:cWord reading [CRAM] writing [];
+
+actiontype mRAMWrite = addr:mAddr -> data:mWord -> () reading [] writing [MRAM];
+actiontype mRAMRead = addr:mAddr -> data:mWord reading [MRAM] writing [];
+
+actiontype mCacheGet = (valid:bit, addr:mAddr, line:mWord)
+			    reading [MCACHE] writing []
+;
+actiontype mCacheSet = (valid:bit, addr:mAddr, line:mWord) -> ()
+			    reading [] writing [MCACHE]
+;
+
+actiontype cCacheGet = (valid:bit, addr:cAddr, line:cWord)
+			    reading [MCACHE] writing []
+;
+actiontype cCacheSet = (valid:bit, addr:cAddr, line:cWord) -> ()
+			    reading [] writing [MCACHE]
+;
+
+actiontype SetSnapReady = valid:bit -> () reading [] writing [SNAP];
+
+actiontype SetTopOfHeap = addr:Addr -> () reading [] writing [TOP_OF_HEAP];
+
+actiontype GcCntInit = addr:Addr -> () reading [] writing [];

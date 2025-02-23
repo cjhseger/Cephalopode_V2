@@ -1,0 +1,185 @@
+/* divmod(x, y, qr): qr[0] <- x DIV y, qr[1] <- x MOD y
+ *
+ *  The algorithm successively guesses refinements, g, to the quotient
+ *  and replaces the current approximation of the quotient, q, with q+g,
+ *  and replaces the current approximation of the remainder, r, with r - g*y.
+ *
+ *  q = 0;
+ *  j = Length(x) - Length(y);
+ *  r = x DIV (1 << j*WordSize);
+ *
+ *  while(TRUE) { (* invariant:  x = (q*y + r)*M + (x MOD M)  *)
+ *		  (* where M = (1 << j*WordSize) *)
+ *      if(abs(r) < abs(y)/2) {
+ *	    if(j == 0) { (* we're done *)
+ *		(* make sure r is between 0 and y - sign(y) *)
+ *		if(((r < 0) != (y < 0)) && (cmp0(r) != 0)) {
+ *		    q = q-1;
+ *		    r = r+y;
+ *		}
+ *		qr[0] = q;
+ *		qr[1] = r;
+ *		return;
+ *	    }
+ *	    (* else shift *)
+ *	    if(abs(r) > abs(y)/2) {
+ *		q -= sign(y);
+ *		r += abs(y);
+ *	    } else if(r > abs(y)/2) {
+ *	        j--;
+ *	        q = (1 << WordSize)*q;
+ *	        r = (1 << WordSize)*r + x[j];
+ *          }
+ *	} else {
+ *	    g = guess(x, y);
+ *	    q = q + g;
+ *	    r = r - g*y;
+ *	}
+ *  }
+ */
+
+static void
+divmod(arbi_T x, arbi_T y, arbi_T *qr)
+{
+    Length_T lx, ly, i, j, lr;
+    arbi_T q, r;
+    Word yy, yh, yl, z;
+    long ys;
+
+    lx = Length(x); ly = Length(y);
+    if(lx < ly) { /* handle the degenerate cases */
+ 	if(((cmp0(x) < 0) == (cmp0(y) < 0)) || (cmp0(x) == 0)) {
+	    qr[0] = arbi__FromInt(0);
+	    qr[1] = arbi__cpy(x);
+	} else {
+	    qr[0] = arbi__FromInt(-1);
+	    qr[1] = arbi__add(x, y);
+	}
+	return;
+    }
+
+    q = arbi__FromInt(0);
+    j = lx - ly;
+
+    /* r = x DIV (1 << j*WordSize); */
+    r = allocate(ly); lr = ly;
+    for(i = 0; i < ly; i++)
+        r[i] = x[j+i];
+
+    /* useful quantities for estimating the quotient:
+     *  yy, the most significant digit of y;
+     *  ys, how many bits yy must be shifted to the left so that
+     *		2^(WordSize-3) <= abs(yy << ys) < 2^(WordSize-2)
+     *  let yz = yy << ys, M = 2^(HalfSize-1);
+     *  yh = yz / M, 2^(HalfSize-2) <= abs(yh) < 2^(HalfSize-1)
+     *  yl = yz % M, 0 <= yl < M-1
+     */
+    yy = y[ly-1];
+    if(yy == 0) {
+    	ys = WordSize-(long)2;
+    	z = ((unsigned s_Word)(y[ly-2])) >> 2;
+    } else if(yy == -1) {
+	ys = WordSize-(long)3;
+	z = (((y[ly-2]) >> 1) | ((long)1 << (WordSize-1))) >> 2;
+    } else {
+	for(ys = (long)-1; (yy<0) == ((yy << (ys+(long)2))<0); ys++);
+	if(ys < 0) z = yy >> -ys;
+	else if((ly == 1) || (ys == 0)) z = yy << ys;
+	else z = (yy << ys) | (    (unsigned s_Word)(y[ly-2])
+				>> (unsigned long)(WordSize-ys));
+    }
+    yh = z >> (HalfSize-1);
+    yl = z & (Hmask >> 1);
+
+    while(TRUE) {
+	Length_T lq;
+	arbi_T g, t, u;
+	Word rr, gg, gh, gl;
+	long rs, gs;
+	lr = Length(r);
+	if(cmpa(y, r) > 0) {
+	    if(j == 0) { /* we're done */
+		/* make sure r is between 0 and y - sign(y) */
+		if(((cmp0(r) < 0) != (cmp0(y) < 0)) && (cmp0(r) != 0)) {
+		    u = arbi__FromInt(1);
+		    t = arbi__sub(q, u); ffree(q); ffree(u); q = t;
+		    t = arbi__add(r, y), ffree(r); r = t;
+		}
+		qr[0] = q;
+		qr[1] = r;
+		return;
+	    } else { /* shift */
+		j--;
+		/* q = (1 << WordSize)*q */
+		lq = Length(q);
+		t = allocate(lq+1);
+		t[0] = 0;
+		for(i = 0; i < lq; i++)
+		    t[i+1] = q[i];
+		ffree(q); q = t; trim(q);
+
+		/* r = (1 << WordSize)*r + x[j]; */
+		u = allocate(lr+1);
+		u[0] = x[j];
+		for(i = 0; i < lr; i++)
+		    u[i+1] = r[i];
+		ffree(r); r = u; trim(r);
+	    }
+	} else {
+	    /* guess a refinement to the divisor */ 
+	    /*  rr, the most significant digit of y;
+	     *  rs, how many bits rr must be shifted to the left so that
+	     *		2^(WordSize-4) <= abs(rr << rs) < 2^(WordSize-3)
+	     *  z = rr << rs;
+	     */
+	    rr = r[lr-1];
+	    if(rr == 0) { /* lr > 1, because Abs(r) > Abs(y) */
+		rs = WordSize-(long)3;
+		z = ((unsigned s_Word)(r[lr-2])) >> 3;
+	    } else if(rr == -1) {
+		rs = WordSize-(long)3;
+		z = (((r[lr-2]) >> 1) | ((long)1 << (WordSize-1))) >> 2;
+	    } else {
+		for(rs = (long)-2; (rr<0) == ((rr << (rs+(long)3))<0); rs++);
+		if(rs < 0) z = rr >> -rs;
+		else if((lr == 1) || (rs == 0)) z = rr << rs;
+		else z = (rr << rs) | (    ((unsigned s_Word)(r[lr-2]))
+					>> (unsigned long)(WordSize-rs));
+	    }
+	    gh = z/yh;	/* 2^(HalfSize-3) <= abs(gh) < 2^(HalfSize-1) */
+	    gl = (((z % yh)<<(HalfSize-1)) - yl*gh)/yh;
+			/* abs(gl) <= 2^(HalfSize+1) */
+	    gg = gl + (gh << (HalfSize-1));
+	    /* gg is an estimate of (rr << (rs + WordSize-2 - ys)) / yy */
+	    gs = (WordSize-(long)2) - WordSize*(long)(lr - ly) + (rs - ys);
+
+	    if(gs < 0) { /* shift gg to the left -gs places */
+		z = gg << -gs;
+		if(((z < 0) != (gg < 0)) || (Abs(z) < Abs(gg))) {
+		    if(gg < 0) z = MinWord;
+		    else z = MaxWord;
+		}
+	    } else if(gs == 0) z = gg;
+	    else { /* shift gg to the right gs places, and round */
+		z = (gg >> gs) + ((gg >> (gs-(long)1)) & 1);
+		if(z == 0) {
+		    if((rr < 0) == (yy < 0)) {
+			z = 1;
+		    } else {
+			z = (long)-1;
+		    }
+		}
+	    }
+	    g = arbi__FromInt(z);
+
+	    /* r = r - g*y; */
+	    t = arbi__mlt(g, y); u = arbi__sub(r, t);
+	    ffree(t); ffree(r); r = u;
+
+	    /* q = q + g; */
+	    t = arbi__add(q, g); ffree(q); q = t;
+
+	    ffree(g);
+	}
+    }
+}

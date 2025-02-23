@@ -1,0 +1,146 @@
+//tcl_eval ["wm iconify ."];
+
+let screenshot_base = "_screenshot";
+
+let next_fn {dummy :: void} =
+    letrec try i =
+	let base_name = sprintf "%s%d" screenshot_base i in
+	let name = sprintf "%s_001.png" base_name in
+	file_exists name => try (i+1) | base_name
+    in
+    try 1
+;
+non_lazy next_fn;
+
+
+lettype cterm = cAPPLY cterm cterm
+	      | cINDIR cterm
+	      | cLAMBDA string cterm
+	      | cCONS cterm cterm
+	      | cVAR string
+	      | cPRIM string
+	      | cCOMB string
+	      | cUSERDEF int
+	      | cINT int
+	      | cNIL
+;
+
+// Use tcl//tk to draw the tree for the term e.
+let draw_cterms defs =
+    let tmp_dir = mktempd "draw_term" then
+    let dot_file = sprintf "%s/graph.dot" tmp_dir then
+    let fp = fopen dot_file "w" then
+    (fprintf fp "digraph G {\n") fseq
+    (fprintf fp "node [shape=circle];\n") fseq
+    (fprintf fp "center = 1;\n") fseq
+    (fprintf fp "margin = 0.5;\n") fseq
+    (fprintf fp "ordering=out;\n") fseq
+    let pr1 (uid,e) =
+	fprintf fp "f%d [shape=box,style=filled,label=\"UD%d\"];\n" uid uid
+    in
+    (foreach pr1 defs) fseq
+    (fprintf fp "{rank=same") fseq
+    (foreach (\(uid,e). fprintf fp " f%d" uid) defs) fseq
+    (fprintf fp "}\n") fseq
+    //
+    let rcnt = ref 0 then
+    letrec draw (cAPPLY E1 E2) =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        let l = draw E1 then
+        let r = draw E2 then
+        (fprintf fp "n%d [label = \"@\"];\n" n) fseq
+        (fprintf fp "n%d -> n%d [style=solid, color=red];\n" n l) fseq
+        (fprintf fp "n%d -> n%d [style=solid, color=black];\n" n r) fseq
+        n
+     /\    draw (cINDIR E1) =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        let l = draw E1 then
+        (fprintf fp "n%d [label = \"->\"];\n" n) fseq
+        (fprintf fp "n%d -> n%d [style=solid, color=red];\n" n l) fseq
+        n
+     /\    draw (cCONS E1 E2) =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        let l = draw E1 then
+        let r = draw E2 then
+        (fprintf fp "n%d [label = \":\"];\n" n) fseq
+        (fprintf fp "n%d -> n%d [style=solid, color=red];\n" n l) fseq
+        (fprintf fp "n%d -> n%d [style=solid, color=black];\n" n r) fseq
+        n
+     /\    draw (cLAMBDA v E) =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        let l = draw (cVAR v) then
+        let r = draw E then
+        (fprintf fp "n%d [label = \"L\"];\n" n) fseq
+        (fprintf fp "n%d -> n%d [style=solid, color=red];\n" n l) fseq
+        (fprintf fp "n%d -> n%d [style=solid, color=black];\n" n r) fseq
+        n
+     /\    draw (cVAR v) =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        (fprintf fp "n%d [shape=plaintext, label = \"%s\"];\n" n v) fseq
+        n
+     /\    draw (cPRIM s) =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        (fprintf fp "n%d [shape=plaintext, label = \"%s\"];\n" n s) fseq
+        n
+     /\    draw (cCOMB s) =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        (fprintf fp "n%d [shape=plaintext, label = \"%s\"];\n" n s) fseq
+        n
+     /\    draw (cINT i) =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        (fprintf fp "n%d [shape=plaintext, label = \"%d\"];\n" n i) fseq
+        n
+     /\    draw (cUSERDEF i) =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        (fprintf fp "n%d [shape=plaintext, label = \"U%d\"];\n" n i) fseq
+        n
+     /\    draw cNIL =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        (fprintf fp "n%d [label = \"[]\"];\n" n) fseq
+        n
+    in
+    let dr (uid,e) =
+	let to = draw e then
+	fprintf fp "f%d -> n%d [color=black];\n" uid to
+    in
+    (foreach dr defs) fseq
+    (fprintf fp "\n}\n") fseq
+    (fclose fp) fseq
+    dot_file
+;
+
+//let draw_cterm t = draw_cterms [(1, t)];
+
+let eval_sequence_ref = ref {[]:: (string#(cterm list)) list};
+
+
+let append_eval_sequences name ts =
+    let new = ((name,ts):(deref eval_sequence_ref)) then
+    (eval_sequence_ref := new)
+;
+
+let start_eval_sequence_draw {dummy::void} =
+    (eval_sequence_ref := (rev (deref eval_sequence_ref))) fseq
+    tcl_eval [sprintf "source %s/visualize.tcl" DIR, "start_eval_seq_vis"]
+;
+non_lazy start_eval_sequence_draw;
+
+let fl_show_eval_sequence idx =
+    let evs = deref eval_sequence_ref then
+    let len = length evs in
+    idx > len => "" |
+    val (msg,ts) = el idx evs then
+    let dot_file = draw_cterms (zip (1--(length ts)) ts) then
+    tcl_eval [sprintf "add_eval_graph {%s} %s" msg dot_file]
+;
+export_to_tcl fl_show_eval_sequence;

@@ -1,0 +1,44 @@
+cload (DIR^"types.fl");
+
+
+BUNDLE "B_set_mcache"
+        [("clkenb", "bit"), ("req", "bit"), ("valid", "bit"), ("addr", "maddr"), ("line", "mark_word")]
+        [("ack", "bit")]
+;
+
+BUNDLE "B_get_mcache"
+    []
+    [("valid", "bit"), ("addr", "maddr"), ("line", "mark_word")]
+;
+
+let mcache =
+    bit_input		clk.
+    bit_input		reset.
+    B_set_mcache_input	S_set_mcache.
+    B_get_mcache_input	S_get_mcache.
+    //
+    bit_internal	c_valid.
+    maddr_internal	c_addr.
+    mark_word_internal	c_line.
+    bit_internal			en eclk.
+    CELL "mcache" [
+	en <- S_set_mcache-->clkenb,
+	clockgate_with_reset clk reset en eclk,
+	STATE eclk c_valid [
+	    (reset,	'0),
+	    (S_set_mcache-->req, S_set_mcache-->valid)
+	],
+	STATE eclk c_addr [
+	    (reset,	'0),
+	    (S_set_mcache-->req, S_set_mcache-->addr)
+	],
+	STATE eclk c_line [
+	    (reset,	'0),
+	    (S_set_mcache-->req, S_set_mcache-->line)
+	],
+	S_set_mcache-->ack <- S_set_mcache-->req,
+	S_get_mcache-->valid <- c_valid,
+	S_get_mcache-->addr <- c_addr,
+	S_get_mcache-->line <- c_line
+];
+create_default_version mcache;

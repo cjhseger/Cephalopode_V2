@@ -1,0 +1,30 @@
+cload (DIR^"types.fl");
+
+BUNDLE "B_set_snap_ready"
+        [("clkenb", "bit"), ("req", "bit"), ("valid", "bit")]
+        [("ack", "bit")]
+;
+
+
+BUNDLE "B_snap_ready"
+        []
+        [("valid", "bit")]
+;
+
+let snap_unit =
+    bit_input		    clk.
+    bit_input		    reset.
+    B_set_snap_ready_input  S_set_snap_ready.
+    B_snap_ready_input	    S_snap_ready.
+    //
+    bit_internal	    status.
+    CELL "snap_unit" [
+	STATE clk status [
+	    (reset,		'0),
+	    (S_set_snap_ready-->req,	S_set_snap_ready-->valid)
+	],
+	S_snap_ready-->valid <- status,
+	S_set_snap_ready-->ack <- S_set_snap_ready-->req
+];
+create_default_version snap_unit;
+

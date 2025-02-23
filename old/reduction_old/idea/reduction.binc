@@ -1,0 +1,52 @@
+#include "../../cephalopode_types.binc"
+#include "../reduction_types.binc"
+
+state COMB;	    // Combinator currently executing
+state PRIM;	    // Primitive function currently executing
+state ALLOC;	    // The pre-allocated graph nodes register addresses
+state ARGS;	    // The arguments collected
+state ARBRF;        // Content of arbitrary precision register file.
+
+
+define imm_proto  = {{ data = "immediate" }};
+define std_proto  = {{ data = "ackpulse" }};
+
+// Actions
+
+action mem_read:MemRead provided by external via proto_mem;
+
+action mem_write:MemWrite provided by external via proto_mem;
+
+action mem_alloc:MemAlloc provided by external via proto_mem;
+
+
+action pause:
+	    (p:bit reading [] writing [])
+	    provided by external via {{ data = "immediate" }}
+;
+
+action comb_unit:
+	     (n:Node -> p:Addr -> up:Addr -> ()
+		reading [MEM] writing [MEM])
+	    provided by external via std_proto
+;
+
+action prim_unit:
+	     (n:Node -> p:Addr -> up:Addr -> ()
+		reading [MEM] writing [MEM])
+	    provided by external via std_proto
+;
+
+action arbi_unit:
+	    (op:Primitive -> arg1:Addr -> arg2:Addr -> res:Node
+		reading [MEM,ARBRF] writing [MEM,ARBRF])
+	    provided by external via std_proto
+;
+
+action misc_unit:
+	    (op:Primitive -> arg1:Addr -> arg2:Addr -> res:Node
+		reading [MEM,ARBRF] writing [MEM,ARBRF])
+	    provided by external via std_proto
+;
+
+

@@ -1,0 +1,91 @@
+
+clet Pnode {i::int} =
+    let nd = {''i :: node} in
+    let C n = wexpr2bool [] (hw_destr n) in
+    let tp = C (nd-->ntype) in
+      tp = (C G_FREE) =>
+        let l = nd-->left in
+        sprintf "G_FREE %s" (P_addr l)
+    |
+      tp = (C G_APP) =>
+        let l = nd-->left in
+        let r = nd-->right in
+        sprintf "G_APP %s %s" (P_addr l) (P_addr r)
+    | tp = (C G_COMB) =>
+        let Cc n = wexpr2bool [] (hw_destr n) in
+        let c = Cc (nd-->comb) in
+	let res =
+	    c == (Cc C_S) => "C_S" |
+	    c == (Cc C_LET) => "C_LET" |
+	    c == (Cc C_K) => "C_K" |
+	    c == (Cc C_I) => "C_I" |
+	    c == (Cc C_Y) => "C_Y" |
+	    c == (Cc C_SPRIME) => "C_SPRIME" |
+	    c == (Cc C_SPRIMEPRIME) => "C_SPRIMEPRIME" |
+	    c == (Cc C_C) => "C_C" |
+	    c == (Cc C_CPRIME) => "C_CPRIME" |
+	    c == (Cc C_B) => "C_B" |
+	    c == (Cc C_BSTAR) => "C_BSTAR" |
+	    c == (Cc C_BPRIME) => "C_BPRIME" |
+	    c == (Cc C_S1) => "C_S1" |
+	    c == (Cc C_S2) => "C_S2" |
+	    c == (Cc C_L) =>
+		    let i = wexpr2bool [] (hw_destr (nd-->comb_idx)) in
+		    sprintf "L%d" (bv2int (list2bv i))
+	    |
+	    c == (Cc C_Cn) =>
+		    let i = wexpr2bool [] (hw_destr (nd-->comb_idx)) in
+		    sprintf "Cn%d" (bv2int (list2bv i))
+	    |
+	    eprintf "Illegal combinator node (%s)" (P_combinator (nd-->comb))
+	in
+	sprintf "%s" res
+    | tp = (C G_PRIM) =>
+        let Cp n = wexpr2bool [] (hw_destr n) in
+        let p = Cp (nd-->prim) in
+	let res = 
+	    p = (Cp P_PLUS) => "P_PLUS" |
+	    p = (Cp P_MINUS) => "P_MINUS" |
+	    p = (Cp P_TIMES) => "P_TIMES" |
+	    p = (Cp P_DIV) => "P_DIV" |
+	    p = (Cp P_MOD) => "P_MOD" |
+	    p = (Cp P_EQ) => "P_EQ" |
+	    p = (Cp P_NEQ) => "P_NEQ" |
+	    p = (Cp P_GT) => "P_GT" |
+	    p = (Cp P_GEQ) => "P_GEQ" |
+	    p = (Cp P_AND) => "P_AND" |
+	    p = (Cp P_OR) => "P_OR" |
+	    p = (Cp P_NOT) => "P_NOT" |
+	    p = (Cp P_COND) => "P_COND" |
+	    p = (Cp P_FST) => "P_FST" |
+	    p = (Cp P_SND) => "P_SND" |
+	    p = (Cp P_TUPLE) => "P_TUPLE" |
+	    p = (Cp P_HD) => "P_HD" |
+	    p = (Cp P_TL) => "P_TL" |
+	    p = (Cp P_IS_NIL) => "P_IS_NIL" |
+	    p = (Cp P_CONS) => "P_CONS" |
+	    p = (Cp P_NIL) => "P_NIL" |
+	    p = (Cp P_PROC_INIT) => "P_PROC_INIT" |
+	    eprintf "Illegal primitive function node (%s)"
+		    (P_primitive (nd-->prim))
+	in
+	res
+    | tp = (C G_INDIR) =>
+        let l = nd-->left in
+        sprintf "G_INDIR %s" (P_addr l)
+    | tp = (C G_INT) =>
+        let i = nd-->int in
+        sprintf "Int %s" (P_Int i)
+    | tp = (C G_AINT) =>
+        let i = nd-->aint in
+        let l = nd-->left in
+        sprintf "Aint %s %s" (P_Aint i) (P_addr l)
+    | tp = (C G_CONS) =>
+        let l = nd-->left in
+        let r = nd-->right in
+        sprintf "CONS %s %s" (P_addr l) (P_addr r)
+    | tp = (C G_NIL) =>
+        sprintf "NIL"
+    | eprintf "Illegal node type (%s)" (P_g_type (nd-->ntype))
+;
+

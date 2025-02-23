@@ -1,0 +1,947 @@
+#include "/home/cseger/VossII/src/include/buf.h"
+#include "/home/cseger/VossII/src/include/generation_hash.h"
+#include "/home/cseger/VossII/src/include/hash.h"
+#include "/home/cseger/VossII/src/include/morestr.h"
+#include "/home/cseger/VossII/src/include/readrc.h"
+#include "/home/cseger/VossII/src/include/rec.h"
+#include "/home/cseger/VossII/src/include/strmgr.h"
+#include "/home/cseger/VossII/src/include/timer.h"
+#include "/home/cseger/VossII/src/include/types.h"
+#include "/home/cseger/VossII/src/include/uniq_buf.h"
+
+#define MEM_SIZE 1000000
+
+#define PTR2INT(p)      ((int) ((long int)(p)))
+#define INT2PTR(p)      ((pointer) ((long int)(p)))
+
+typedef struct aint_rec    *aint_ptr;
+typedef struct aint_rec {
+    int		    aint;
+    aint_ptr	    next;
+} aint_rec;
+
+typedef enum { G_FREE, G_APP, G_COMB, G_PRIM, G_INDIR,
+	       G_INT, G_AINT, G_CONS, G_NIL}		    g_type;
+
+typedef enum { C_S, C_K, C_I, C_Y, C_SPRIME,
+	       C_C, C_CPRIME, C_B, C_BSTAR,
+	       C_BPRIME, C_SPRIMEPRIME, C_L,
+	       C_Cn, C_S1, C_S2 }			    combinator;
+
+typedef enum { P_PLUS, P_MINUS, P_TIMES, P_DIV, P_MOD,
+	       P_EQ, P_NEQ, P_GT, P_GEQ,
+	       P_AND, P_OR, P_NOT,
+	       P_COND,
+	       P_FST, P_SND, P_TUPLE,
+	       P_HD, P_TL, P_IS_NIL, P_CONS, P_NIL,
+	       P_PROC_INIT }				    primitive;
+
+typedef struct node_rec	    *node_ptr;
+typedef struct node_rec {
+    char	    *src;
+    g_type	    ntype;
+    combinator	    comb;
+    int		    comb_idx;
+    primitive	    prim;
+    aint_ptr	    aint;
+    long long int   mint;
+    node_ptr	    left;
+    node_ptr	    right;
+    node_ptr	    up;
+} node_rec;
+
+static hash_record  op_name_tbl;
+static hash_record  red_stat_tabl;
+
+static void initialize();
+
+static node_ptr	    root;
+static int	    top_level_funs;
+static int	    max_reductions;
+static FILE	    *fp;
+static char	    buf[128];
+static int	    gui_mode;
+static int	    verbose_mode;
+static int	    reduction_cnt = 0;
+static int	    start_tracing_from = 0;
+
+static buffer	stack_buf;
+static buffer	op_buf;
+
+static node_ptr heap;
+static int alloc_cnt = 0;
+
+static void
+scan_red_names(pointer key, pointer data)
+{
+    (void) data;
+    char *cmd = (char *) key;
+    push_buf(&op_buf, &cmd);
+}
+
+static int
+vn_cmp(const void *pi, const void *pj)
+{
+    string *i = (string *) pi;
+    string *j = (string *) pj;
+    return( strcmp(*i, *j) );
+}
+
+
+
+static node_ptr
+get_node(char *creator)
+{
+    if( alloc_cnt >= MEM_SIZE ) {
+	fprintf(stderr, "Ran out of memory!\n");
+	exit(-3);
+    }
+    node_ptr np = heap+alloc_cnt;
+    alloc_cnt++;
+    np->src = malloc(strlen(creator)+1);
+    strcpy(np->src, creator);
+    np->ntype = (g_type) 0;
+    np->comb = (combinator) 0;
+    np->comb_idx = (int) 0;
+    np->prim = (primitive) 0;
+    np->aint = (aint_ptr) 0;
+    np->mint = (int) 0;
+    np->left = (node_ptr) 0;
+    np->right = (node_ptr) 0;
+    np->up = (node_ptr) 0;
+    return( np );
+}
+
+static node_ptr
+OVERWRITE(node_ptr redex, node_ptr res)
+{
+    *redex = *res;
+    return redex;
+}
+
+static node_ptr
+get_real(node_ptr np)
+{
+    int m = 1000;
+    while( (np->ntype == G_INDIR) && (m > 0) ) { np = np->left; m--; }
+    if( m == 0 ) {
+	fprintf(stderr, "WARNING WARNING Too long indirection chain!!!");
+    }
+    return np;
+}
+
+static int
+Exit(int code) {
+    exit(code);
+}
+
+static void
+dbg_stop() {
+    fprintf(stderr, ".");
+}
+
+
+static void
+emit(FILE *fp, node_ptr np)
+{
+    int cnt, loc;
+    switch( np->ntype ) {
+	case G_FREE:
+	    fprintf(fp, "(cVAR \"ILLEGAL_FREE\")");
+	    return;
+	case G_APP:
+	    fprintf(fp, "(cAPPLY\n  ");
+	    emit(fp, np->left);
+	    fprintf(fp, "\n  ");
+	    emit(fp, np->right);
+	    fprintf(fp, ")\n");
+	    return;
+	case G_COMB:
+	    switch( np->comb ) {
+		case C_I:
+		    fprintf(fp, "(cCOMB \"C_I\")"); return;
+		case C_K:
+		    fprintf(fp, "(cCOMB \"C_K\")"); return;
+		case C_S:
+		    fprintf(fp, "(cCOMB \"C_S\")"); return;
+		case C_SPRIMEPRIME:
+		    fprintf(fp, "(cCOMB \"C_SPRIMEPRIME\")"); return;
+		case C_SPRIME:
+		    fprintf(fp, "(cCOMB \"C_SPRIME\")"); return;
+		case C_C:
+		    fprintf(fp, "(cCOMB \"C_C\")"); return;
+		case C_CPRIME:
+		    fprintf(fp, "(cCOMB \"C_CPRIME\")"); return;
+		case C_B:
+		    fprintf(fp, "(cCOMB \"C_B\")"); return;
+		case C_BSTAR:
+		    fprintf(fp, "(cCOMB \"C_BSTAR\")"); return;
+		case C_BPRIME:
+		    fprintf(fp, "(cCOMB \"C_BPRIME\")"); return;
+		case C_L:
+		    cnt = np->comb_idx;
+		    fprintf(fp, "(cCOMB \"C_L%d\")", cnt); return;
+		case C_Cn:
+		    cnt = np->comb_idx;
+		    fprintf(fp, "(cCOMB \"C_Cn%d\")", cnt); return;
+		case C_Y:
+		    fprintf(fp, "(cCOMB \"C_Y\")"); return;
+		case C_S1:
+		    fprintf(fp, "(cCOMB \"C_S1\")"); return;
+		case C_S2 :
+		    fprintf(fp, "(cCOMB \"C_S2\")"); return;
+		default:
+		    fprintf(stderr, "Unknown combinator....");
+		    Exit(-1);
+	    }
+	case G_PRIM:
+	    switch( np->prim ) {
+		case P_PLUS:
+		    fprintf(fp, "(cPRIM \"P_PLUS\")"); return;
+		case P_MINUS:
+		    fprintf(fp, "(cPRIM \"P_MINUS\")"); return;
+		case P_TIMES:
+		    fprintf(fp, "(cPRIM \"P_TIMES\")"); return;
+		case P_DIV:
+		    fprintf(fp, "(cPRIM \"P_DIV\")"); return;
+		case P_MOD:
+		    fprintf(fp, "(cPRIM \"P_MOD\")"); return;
+		case P_EQ:
+		    fprintf(fp, "(cPRIM \"P_EQ\")"); return;
+		case P_NEQ:
+		    fprintf(fp, "(cPRIM \"P_NEQ\")"); return;
+		case P_GT:
+		    fprintf(fp, "(cPRIM \"P_GT\")"); return;
+		case P_GEQ:
+		    fprintf(fp, "(cPRIM \"P_GEQ\")"); return;
+		case P_AND:
+		    fprintf(fp, "(cPRIM \"P_AND\")"); return;
+		case P_OR:
+		    fprintf(fp, "(cPRIM \"P_OR\")"); return;
+		case P_NOT:
+		    fprintf(fp, "(cPRIM \"P_NOT\")"); return;
+		case P_COND:
+		    fprintf(fp, "(cPRIM \"P_COND\")"); return;
+		case P_HD:
+		    fprintf(fp, "(cPRIM \"P_HD\")"); return;
+		case P_FST:
+		    fprintf(fp, "(cPRIM \"P_FST\")"); return;
+		case P_SND:
+		    fprintf(fp, "(cPRIM \"P_SND\")"); return;
+		case P_TL:
+		    fprintf(fp, "(cPRIM \"P_TL\")"); return;
+		case P_TUPLE:
+		    fprintf(fp, "(cPRIM \"P_TUPLE\")"); return;
+		case P_CONS:
+		    fprintf(fp, "(cPRIM \"P_CONS\")"); return;
+		case P_NIL:
+		    fprintf(fp, "(cPRIM \"P_NIL\")"); return;
+		default:
+		    fprintf(stderr, "Unsupported function....");
+		    Exit(-1);
+	    }
+	case G_INDIR:
+	    loc = (int) (np->left-heap);
+	    if( loc <= top_level_funs ) {
+		fprintf(fp, "(cUSERDEF %d)", loc);
+	    } else {
+		fprintf(fp, "(cINDIR ");
+		emit(fp, np->left);
+		fprintf(fp, ")\n");
+	    }
+	    return;
+	case G_INT:
+	    fprintf(fp, "(cINT (%lld))", np->mint); return;
+	case G_AINT:
+	    fprintf(fp, "(cAINT (%lld))", np->mint); return;
+	case G_CONS:
+	    fprintf(fp, "(cCONS\n  ");
+	    emit(fp, np->left);
+	    fprintf(fp, "\n  ");
+	    emit(fp, np->right);
+	    fprintf(fp, ")\n");
+	    return;
+	case G_NIL:
+	    fprintf(fp, "cNIL"); return;
+	default:
+	    fprintf(stderr, "Unknown node type....");
+	    Exit(-1);
+    }
+}
+
+
+static void 
+draw_cterm(char *msg, node_ptr np)
+{
+    fprintf(fp, "append_eval_sequences \"%s\" [", msg);
+    char sep = ' ';
+    for(int i = 1; i <= top_level_funs; i++) {
+	fprintf(fp, "%c\n\t(", sep);
+	sep = ',';
+	emit(fp, (heap+i));
+	fprintf(fp, ")");
+    }
+    fprintf(fp, "];\n");
+}
+
+static void
+print_stack() 
+{
+    node_ptr *npp, np;
+    fprintf(stderr, "Stack (%d): ", COUNT_BUF(&stack_buf));
+    FOR_BUF(&stack_buf, node_ptr, npp) {
+	np = *npp;
+	fprintf(stderr, " %d", ((int) (np-heap)));
+    }
+    fprintf(stderr, "\n");
+}
+
+
+static void
+add_reduction_stat(char *tcmd)
+{
+    int cur;
+    char *cmd;
+    if( (cmd = find_hash(&op_name_tbl, tcmd)) == NULL ) {
+	cmd = malloc(strlen(tcmd)+1);
+	strcpy(cmd, tcmd);
+	insert_hash(&op_name_tbl, cmd, cmd);
+    }
+    cur = PTR2INT(find_hash(&red_stat_tabl, cmd));
+    if( cur != 0 ) {
+	delete_hash(&red_stat_tabl, cmd);
+    }
+    cur++;
+    insert_hash(&red_stat_tabl, cmd, INT2PTR(cur));
+}
+
+static void
+Info(node_ptr np, char *cmd) {
+    add_reduction_stat(cmd);
+    if( gui_mode && reduction_cnt >= start_tracing_from ) {
+	sprintf(buf, "About to perform: %s\n", cmd);
+	draw_cterm(buf, root);
+    } else if( verbose_mode ) {
+	fprintf(stderr, "About to perform: %s\n", cmd);
+    }
+}
+
+static char tmp_buf[128];
+static void
+Info2(node_ptr np, char *cmd, int idx) {
+    char *fcmd;
+    sprintf(tmp_buf, "%s%d", cmd, idx);
+    Info(np, tmp_buf);
+}
+
+static void
+is_equal(node_ptr res, bool do_eq, node_ptr np1, node_ptr np2)
+{
+    node_ptr	t1, t2, t3, t4, f, A, B, C, D;
+    switch( np1->ntype ) {
+	case G_INT:
+	    if( np2->ntype == G_INT ) {
+		if( np1->mint == np2->mint ) {
+		    res->ntype = G_INT;
+		    res->mint = do_eq? 1 : 0;
+		    return;
+		} else
+		{
+		    res->ntype = G_INT;
+		    res->mint = do_eq? 0 : 1;
+		    return;
+		}
+	    } else {
+		fprintf(stderr, "Mixed type in is_equal????");
+		Exit(-1);
+	    }
+	    break;
+	case G_NIL:
+	    if( np2->ntype == G_NIL ) {
+		res->ntype = G_INT;
+		res->mint = do_eq? 1 : 0;
+		return;
+	    }
+	    if( np2->ntype == G_CONS ) {
+		res->ntype = G_INT;
+		res->mint = do_eq? 0 : 1;
+		return;
+	    }
+	    fprintf(stderr, "Mixed type in is_equal????");
+	    Exit(-1);
+	case G_CONS:
+	    if( np2->ntype == G_NIL ) {
+		res->ntype = G_INT;
+		res->mint = do_eq? 0 : 1;
+		return;
+	    }
+	    if( np2->ntype != G_CONS ) {
+		fprintf(stderr, "Mixed type in is_equal????");
+		Exit(-1);
+	    }
+	    // Two CONS nodes. Build:
+            //  f is EQ or NEQ
+            //
+            //          @                @
+            //         / \              / \
+            //        /   \            /   \
+            //       /     :    ==>   /     \
+            //      @     / \        /       \
+            //     / \   C   D      /         \
+            //    f   :            @           \
+            //       / \          / \           @
+            //      A   B        C   @         / \
+            //                      / \       /  AND
+            //                     A   f     @
+            //                              / \
+            //                             D   @
+            //                                / \
+            //                               B   f
+            //
+	    res->ntype = G_APP;
+	    f = get_node("is_eq(f)");
+	    f->ntype = G_PRIM;
+	    f->prim = do_eq? P_EQ : P_NEQ;
+	    A = np1->left;
+	    B = np1->right;
+	    C = np2->left;
+	    D = np2->right;
+	    //
+	    t1 = get_node("is_eq(1)"); t1->ntype = G_APP;
+	    t1->left  = A;
+	    t1->right = f;
+	    t2 = get_node("is_eq(2)"); t2->ntype = G_APP;
+	    t2->left  = C;
+	    t2->right = t1;
+	    res->left = t2;
+	    //
+	    t1 = get_node("is_eq(3)"); t1->ntype = G_APP;
+	    t1->left  = B;
+	    t1->right = f;
+	    t2 = get_node("is_eq(4)"); t2->ntype = G_APP;
+	    t2->left  = D;
+	    t2->right = t1;
+	    t3 = get_node("is_eq(AND)"); t3->ntype = G_PRIM;
+	    t3->prim = P_AND;
+	    t4 = get_node("is_eq(5)"); t4->ntype = G_APP;
+	    t4->left  = t2;
+	    t4->right = t3;
+	    res->right = t4;
+	    return;
+	default:
+	    fprintf(stderr, "Illegal type for arg1 in is_equal at %d\n", 
+		    reduction_cnt);
+	    fprintf(stderr, "Node is:\n");
+	    emit(stderr, np1);
+	    fprintf(stderr, "\n");
+	    Exit(-1);
+    }
+}
+
+static node_ptr
+reduce(node_ptr np)
+{
+    node_ptr	redex, a1, a2, a3, a4, al1, al2, al3, al4, tmp, res;
+    int		cnt, i;
+    char	buf[10];
+    node_rec	result;
+
+    reduction_cnt = 0;
+
+    root = np;
+
+    res = &result;
+  start:
+    reduction_cnt++;
+    if( reduction_cnt >= max_reductions ) {
+	fprintf(stdout,
+		"Aborted reduction after %d reductions.\n", max_reductions);
+	return np;
+    }
+  go_left:
+    switch( np->ntype ) {
+	case G_FREE:
+	    fprintf(stderr, "Trying to reduce a G_FREE\n");
+	    Exit(-1);
+	case G_APP:
+	    push_buf(&stack_buf, &np);
+	    np = np->left;
+	    goto go_left;
+	case G_COMB:
+	    switch( np->comb ) {
+		case C_I:
+		    Info(np, "C_I");
+		    pop_buf(&stack_buf, &a1);
+		    res->ntype = G_INDIR;
+		    res->left = a1->right;
+		    np = OVERWRITE(a1, res);
+		    goto start;
+		case C_K:
+		    Info(np, "C_K");
+		    pop_buf(&stack_buf, &a1);
+		    pop_buf(&stack_buf, &a2);
+		    res->ntype = G_INDIR;
+		    res->left = a1->right;
+		    np = OVERWRITE(a2, res);
+		    goto start;
+		case C_S:
+		    Info(np, "C_S");
+		    pop_buf(&stack_buf, &a1);
+		    pop_buf(&stack_buf, &a2);
+		    pop_buf(&stack_buf, &a3);
+		    al1 = get_node("C_S(1)"); al1->ntype = G_APP;
+		    al1->left = a1->right;
+		    al1->right = a3->right;
+		    al2 = get_node("C_S(2)"); al2->ntype = G_APP;
+		    al2->left = a2->right;
+		    al2->right = a3->right;
+		    res->ntype = G_APP;
+		    res->left = al1;
+		    res->right = al2;
+		    np = OVERWRITE(a3, res);
+		    goto start;
+		case C_SPRIMEPRIME:
+		    Info(np, "C_SPRIMEPRIME");
+		    pop_buf(&stack_buf, &a1);
+		    pop_buf(&stack_buf, &a2);
+		    pop_buf(&stack_buf, &a3);
+		    pop_buf(&stack_buf, &a4);
+		    al1 = get_node("C_SPRIMEPRIME(1)"); al1->ntype = G_APP;
+		    al2 = get_node("C_SPRIMEPRIME(2)"); al2->ntype = G_APP;
+		    al3 = get_node("C_SPRIMEPRIME(3)"); al3->ntype = G_APP;
+		    al4 = get_node("C_SPRIMEPRIME(4)"); al4->ntype = G_APP;
+		    al1->left = a1->right;
+		    al1->right = a3->right;
+		    al2->left = al1;
+		    al2->right = a4->right;
+		    al3->left = a2->right;
+		    al3->right = a3->right;
+		    al4->left = al3;
+		    al4->right = a4->right;
+		    res->ntype = G_APP;
+		    res->left = al2;
+		    res->right = al4;
+		    np = OVERWRITE(a4, res);
+		    goto start;
+		case C_SPRIME:
+		    Info(np, "C_SPRIME");
+		    pop_buf(&stack_buf, &a1);
+		    pop_buf(&stack_buf, &a2);
+		    pop_buf(&stack_buf, &a3);
+		    pop_buf(&stack_buf, &a4);
+		    al1 = get_node("C_SPRIME(1)"); al1->ntype = G_APP;
+		    al2 = get_node("C_SPRIME(2)"); al2->ntype = G_APP;
+		    al3 = get_node("C_SPRIME(3)"); al3->ntype = G_APP;
+		    al1->left = a2->right;
+		    al1->right = a4->right;
+		    al2->left = a1->right;
+		    al2->right = al1;
+		    al3->left = a3->right;
+		    al3->right = a4->right;
+		    res->ntype = G_APP;
+		    res->left = al2;
+		    res->right = al3;
+		    np = OVERWRITE(a4, res);
+		    goto start;
+		case C_C:
+		    Info(np, "C_C");
+		    pop_buf(&stack_buf, &a1);
+		    pop_buf(&stack_buf, &a2);
+		    pop_buf(&stack_buf, &a3);
+		    al1 = get_node("C_C(1)"); al1->ntype = G_APP;
+		    al1->left = a1->right;
+		    al1->right = a3->right;
+		    res->ntype = G_APP;
+		    res->left = al1;
+		    res->right = a2->right;
+		    np = OVERWRITE(a3, res);
+		    goto start;
+		case C_CPRIME:
+		    Info(np, "C_CPRIME");
+		    pop_buf(&stack_buf, &a1);
+		    pop_buf(&stack_buf, &a2);
+		    pop_buf(&stack_buf, &a3);
+		    pop_buf(&stack_buf, &a4);
+		    al1 = get_node("C_CPRIME(1)"); al1->ntype = G_APP;
+		    al2 = get_node("C_CPRIME(2)"); al2->ntype = G_APP;
+		    al1->left = a2->right;
+		    al1->right = a4->right;
+		    al2->left = a1->right;
+		    al2->right = al1;
+		    res->ntype = G_APP;
+		    res->left = al2;
+		    res->right = a3->right;
+		    np = OVERWRITE(a4, res);
+		    goto start;
+		case C_B:
+		    Info(np, "C_B");
+		    pop_buf(&stack_buf, &a1);
+		    pop_buf(&stack_buf, &a2);
+		    pop_buf(&stack_buf, &a3);
+		    al1 = get_node("C_B"); al1->ntype = G_APP;
+		    al1->left = a2->right;
+		    al1->right = a3->right;
+		    res->ntype = G_APP;
+		    res->left = a1->right;
+		    res->right = al1;
+		    np = OVERWRITE(a3, res);
+		    goto start;
+		case C_BSTAR:
+		    Info(np, "C_BSTAR");
+		    pop_buf(&stack_buf, &a1);
+		    pop_buf(&stack_buf, &a2);
+		    pop_buf(&stack_buf, &a3);
+		    pop_buf(&stack_buf, &a4);
+		    al1 = get_node("C_BSTAR(1)"); al1->ntype = G_APP;
+		    al2 = get_node("C_BSTAR(2)"); al2->ntype = G_APP;
+		    al1->left = a3->right;
+		    al1->right = a4->right;
+		    al2->left = a2->right;
+		    al2->right = al1;
+		    res->ntype = G_APP;
+		    res->left = a1->right;
+		    res->right = al2;
+		    np = OVERWRITE(a4, res);
+		    goto start;
+		case C_BPRIME:
+		    Info(np, "C_BPRIME");
+		    pop_buf(&stack_buf, &a1);
+		    pop_buf(&stack_buf, &a2);
+		    pop_buf(&stack_buf, &a3);
+		    pop_buf(&stack_buf, &a4);
+		    al1 = get_node("C_BPRIME(1)"); al1->ntype = G_APP;
+		    al2 = get_node("C_BPRIME(2)"); al2->ntype = G_APP;
+		    al1->left = a1->right;
+		    al1->right = a2->right;
+		    al2->left = a3->right;
+		    al2->right = a4->right;
+		    res->ntype = G_APP;
+		    res->left = al1;
+		    res->right = al2;
+		    np = OVERWRITE(a4, res);
+		    goto start;
+		case C_L:
+		    cnt = np->comb_idx;
+		    Info2(np, "C_L", cnt);
+		    redex = *((node_ptr *) M_LOCATE_BUF(&stack_buf,
+						COUNT_BUF(&stack_buf)-cnt-1));
+		    if( cnt == 1 ) {
+			pop_buf(&stack_buf,&a1);
+			pop_buf(&stack_buf,&a2);
+			res->ntype = G_APP;
+			res->left = a2->right;
+			res->right = a1->right;
+			np = OVERWRITE(redex, res);
+			goto start;
+		    }
+		    al1 = get_node("C_L(1)"); al1->ntype = G_APP;
+		    al1->left = redex->right;
+		    for(i = 0; i < cnt-2; i++) {
+			pop_buf(&stack_buf,&a1);
+			al1->right = a1->right;
+			sprintf(buf, "C_L(%d)", i+2);
+			al2 = get_node(buf); al2->ntype = G_APP;
+			al2->left = al1;
+			al1 = al2;
+		    }
+		    pop_buf(&stack_buf,&a1);
+		    al1->right = a1->right;
+		    res->ntype = G_APP;
+		    res->left = al1;
+		    pop_buf(&stack_buf,&a1);
+		    res->right = a1->right;
+		    pop_buf(&stack_buf,&a1);	// Finally pop off the redex
+		    np = OVERWRITE(redex, res);
+		    goto start;
+		case C_Cn:
+		    cnt = np->comb_idx;
+		    Info2(np, "C_Cn", cnt);
+		    redex = *((node_ptr *) M_LOCATE_BUF(&stack_buf,
+						COUNT_BUF(&stack_buf)-cnt-2));
+		    pop_buf(&stack_buf,&a1);
+		    al1 = get_node("C_Cn(1)"); al1->ntype = G_APP;
+		    al1->left = a1->right;
+		    al1->right = redex->right;
+		    for(i = 0; i < cnt-1; i++) {
+			pop_buf(&stack_buf,&a2);
+			al2 = get_node(buf); al2->ntype = G_APP;
+			al2->left = al1;
+			al2->right = a2->right;
+			al1 = al2;
+		    }
+		    pop_buf(&stack_buf,&a3);
+		    res->ntype = G_APP;
+		    res->left = al1;
+		    res->right = a3->right;
+		    pop_buf(&stack_buf,&a1);	// Finally pop off the redex
+		    np = OVERWRITE(redex, res);
+		    goto start;
+		case C_Y:
+		    fprintf(stderr, "C_Y not implemented yet!\n");
+		    Exit(-1);
+		case C_S1:
+		    fprintf(stderr, "C_S1 not implemented yet!\n");
+		    Exit(-1);
+		case C_S2 :
+		    fprintf(stderr, "C_S2 not implemented yet!\n");
+		    Exit(-1);
+		default:
+		    fprintf(stderr, "Unknown combinator....");
+		    Exit(-1);
+	    }
+	case G_PRIM:
+	    switch( np->prim ) {
+		case P_EQ:
+		    pop_buf(&stack_buf, &a1);
+		    pop_buf(&stack_buf, &a2);
+		    redex = a2;
+		    a1 = get_real(a1->right);
+		    a2 = get_real(a2->right);
+		    Info(np, "P_EQ");
+		    is_equal(res, 1, a1, a2);
+		    np = OVERWRITE(redex, res);
+		    goto start;
+		case P_NEQ:
+		    pop_buf(&stack_buf, &a1);
+		    pop_buf(&stack_buf, &a2);
+		    redex = a2;
+		    a1 = get_real(a1->right);
+		    a2 = get_real(a2->right);
+		    Info(np, "P_NEQ");
+		    is_equal(res, 0, a1, a2);
+		    np = OVERWRITE(redex, res);
+		    goto start;
+		case P_PLUS:
+		case P_MINUS:
+		case P_TIMES:
+		case P_DIV:
+		case P_MOD:
+		case P_GT:
+		case P_GEQ:
+		case P_AND:
+		case P_OR:
+		    pop_buf(&stack_buf, &a1);
+		    pop_buf(&stack_buf, &a2);
+		    redex = a2;
+		    a1 = get_real(a1->right);
+		    a2 = get_real(a2->right);
+		    ASSERT(a1->ntype == G_INT );
+		    ASSERT(a2->ntype == G_INT );
+		    res->ntype = G_INT;
+		    switch( np->prim ) {
+			case P_PLUS:
+			Info(np, "P_PLUS");
+			res->mint = a1->mint + a2->mint; break;
+			case P_MINUS:
+			Info(np, "P_MINUS");
+			res->mint = a1->mint - a2->mint; break;
+			case P_TIMES:
+			Info(np, "P_TIMES");
+			res->mint = a1->mint * a2->mint; break;
+			case P_DIV:
+			Info(np, "P_DIV");
+			res->mint = a1->mint / a2->mint; break;
+			case P_MOD:
+			Info(np, "P_MOD");
+			res->mint = a1->mint % a2->mint; break;
+			case P_GT:
+			Info(np, "P_GT");
+			res->mint = (a1->mint > a2->mint)? 1 : 0; break;
+			case P_GEQ:
+			Info(np, "P_GEQ");
+			res->mint = (a1->mint >= a2->mint)? 1 : 0; break;
+			case P_AND:
+			Info(np, "P_AND");
+			res->mint = a1->mint & a2->mint; break;
+			case P_OR:
+			Info(np, "P_OR");
+			res->mint = a1->mint | a2->mint; break;
+		    }
+		    np = OVERWRITE(redex, res);
+		    goto start;
+		case P_NOT:
+		    Info(np, "P_NOT");
+		    pop_buf(&stack_buf, &a1);
+		    redex = a1;
+		    a1 = get_real(a1->right);
+		    ASSERT(a1->ntype == G_INT );
+		    res->ntype = G_INT;
+		    res->mint = (a1->mint == 0)? 1 : 0;
+		    np = OVERWRITE(redex, res);
+		    goto start;
+		case P_COND:
+		    Info(np, "P_COND");
+		    pop_buf(&stack_buf, &a1);
+		    a1 = get_real(a1->right);
+		    ASSERT(a1->ntype == G_INT );
+		    pop_buf(&stack_buf, &a2);
+		    pop_buf(&stack_buf, &a3);
+		    res->ntype = G_INDIR;
+		    if( a1->mint == 0 ) {
+			res->left = a3->right;
+		    } else {
+			res->left = a2->right;
+		    }
+		    np = OVERWRITE(a3, res);
+		    goto start;
+		case P_HD:
+		case P_FST:
+		    Info(np, "P_HD/P_FST");
+		    pop_buf(&stack_buf, &a1);
+		    redex = a1;
+		    a1 = get_real(a1->right);
+		    ASSERT( a1->ntype == G_CONS );
+		    res->ntype = G_INDIR;
+		    res->left = a1->left;
+		    np = OVERWRITE(redex, res);
+		    goto start;
+		case P_SND:
+		case P_TL:
+		    Info(np, "P_SND/P_TL");
+		    pop_buf(&stack_buf, &a1);
+		    redex = a1;
+		    a1 = get_real(a1->right);
+		    ASSERT( a1->ntype == G_CONS );
+		    res->ntype = G_INDIR;
+		    res->left = a1->right;
+		    np = OVERWRITE(redex, res);
+		    goto start;
+		case P_TUPLE:
+		case P_CONS:
+		    Info(np, "P_TUPLE/P_CONS");
+		    pop_buf(&stack_buf, &a1);
+		    pop_buf(&stack_buf, &a2);
+		    redex = a2;
+		    res->ntype = G_CONS;
+		    res->left = a1->right;
+		    res->right = a2->right;
+		    np = OVERWRITE(redex, res);
+		    goto start;
+		case P_NIL:
+		    Info(np, "P_NIL");
+		    np->ntype = G_NIL;
+		    goto start;
+		default:
+		    fprintf(stderr, "Unsupported function....");
+		    Exit(-1);
+	    }
+	case G_INDIR:
+	    //Info(np, "G_INDIR");
+	    np = get_real(np->left);
+	    goto go_left;
+	case G_INT:
+	case G_AINT:
+	case G_CONS:
+	case G_NIL:
+	    switch(np->ntype) {
+		case G_INT: Info(np, "G_INT"); break;
+		case G_AINT: Info(np, "G_AINT"); break;
+		case G_CONS: Info(np, "G_CONS"); break;
+		case G_NIL: Info(np, "G_NIL"); break;
+	    }
+	    if( COUNT_BUF(&stack_buf) == 0 ) {
+		if( np->ntype == G_INT ) {
+		    fprintf(stdout, "Completed with result: %lld after %d reductions\n", np->mint, reduction_cnt);
+		} else {
+		    fprintf(stdout, "Completed with non-integer result after %d reductions\n", reduction_cnt);
+		}
+		return np;
+	    }
+	    pop_buf(&stack_buf, &a1);
+	    res->ntype = G_APP;
+	    res->left = a1->right;
+	    res->right = a1->left;
+	    np = OVERWRITE(a1, res);
+	    goto start;
+	default:
+	    fprintf(stderr, "Unknown node type....");
+	    Exit(-1);
+    }
+}
+
+static void
+usage()
+{
+    fprintf(stderr,
+"Usage: EVAL {-g} {-v} {-s <index_tracing_from>} {-m <max_reductions>} -I <dir>\n");
+}
+
+int
+main(int argc, char *argv[])
+{
+    char *tmp_dir;
+
+    create_hash(&op_name_tbl,100, str_hash, str_equ);
+    create_hash(&red_stat_tabl,100, str_hash, str_equ);
+    gui_mode = 0;
+    verbose_mode = 0;
+    start_tracing_from = 0;
+    while( argc > 1 && argv[1][0] == '-' ) {
+        if( strcmp(argv[1], "-m") == 0 ) {
+            if( sscanf(argv[2], "%d", &max_reductions) != 1 ) {
+		usage();
+		exit(-1);
+	    }
+            argc -= 2; argv += 2;
+        } else
+        if( strcmp(argv[1], "-s") == 0 ) {
+            if( sscanf(argv[2], "%d", &start_tracing_from) != 1 ) {
+		usage();
+		exit(-1);
+	    }
+            argc -= 2; argv += 2;
+        } else
+        if( strcmp(argv[1], "-g") == 0 ) {
+	    gui_mode = 1;
+	    argc--; argv++;
+	} else 
+        if( strcmp(argv[1], "-v") == 0 ) {
+	    verbose_mode = 1;
+	    argc--; argv++;
+	} else 
+        if( strcmp(argv[1], "-I") == 0 ) {
+	    tmp_dir = argv[2];
+            argc -= 2; argv += 2;
+	} else {
+	    usage();
+	    exit(-2);
+	}
+    }
+
+    heap = (node_ptr) malloc(MEM_SIZE*sizeof(node_rec));
+
+
+    if( gui_mode ) {
+	sprintf(buf, "%s/eval_vis.fl", tmp_dir);
+	if( (fp = fopen(buf, "a")) == NULL ) {
+	    fprintf(stderr, "Cannot open %s to append to it\n", buf);
+	    exit(-2);
+	}
+    }
+    new_buf(&stack_buf, 100, sizeof(node_ptr));
+    initialize();
+    reduce( heap+1 );
+    new_buf(&op_buf, 100, sizeof(char *));
+    scan_hash(&red_stat_tabl, scan_red_names);
+    qsort(START_BUF(&op_buf), COUNT_BUF(&op_buf), sizeof(char *), vn_cmp);
+    char **spp;
+    fprintf(stdout, "Reduction statistics:\n");
+    int sz = 0;
+    FOR_BUF(&op_buf, char *, spp) {
+	char *cmd = *spp;
+	int len = strlen(cmd);
+	if( len > sz ) sz = len;
+    }
+    FOR_BUF(&op_buf, char *, spp) {
+	char *cmd = *spp;
+	int cnt = PTR2INT(find_hash(&red_stat_tabl, cmd));
+	fprintf(stdout, "%*s: %d\n", sz,cmd, cnt);
+    }
+    if( gui_mode ) {
+	fprintf(fp, "start_eval_sequence_draw ();\n");
+	fclose(fp);
+    }
+    exit( 0 );
+}
+
+

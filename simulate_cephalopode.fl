@@ -1,0 +1,549 @@
+set_font font_larger;
+cload "load_cephalopode.fl";
+load (DIR^"ram_observer.fl");
+
+let p = cephalopode;
+
+let ckt = pexlif2fsm p;
+(wtime ckt);
+
+let vis = STE_debug ckt;
+wtime vis;
+
+update_vossrc "RECURSION-CALL-LIMIT" "1000000";
+
+let convert_line_to_node line =
+    let s2bit c = c = "0" => {'0::bit} |
+                  c = "1" => {'1::bit} |
+                  eprintf "Illegal syntax in ROM file (%s)" c
+    in
+    {frombits (map s2bit (butlast (explode line))):: node}
+;
+
+let mk_ROM_ant ckt name file =
+    let fp = fopen file "r" then
+    (
+        let vecs = vectors ckt in
+        let pat =  sprintf "__ROM__%s__" name in
+        let candidates = filter (str_is_substr pat) vecs in
+        candidates = [] => eprintf "Cannot find ROM named %s" name |
+        length candidates != 1 =>
+            eprintf "ROM name %s is not unique. Matches %S" name candidates
+        |
+        let rom_cells = md_expand_vectors candidates in
+        letrec rd {addr::int} =
+            let line = fgets fp then
+            line == "" => [] |
+            let v = convert_line_to_node line then
+            (wexpr2bool [] (hw_destr v)):(rd (addr+1))
+        in
+        let vals = flat (rev (rd 0)) then
+        let relevant_cells = lastn (length vals) rom_cells in
+        let res = map2 (\c.\v. (T,c,v,0,1)) relevant_cells vals then
+        (fclose fp) fseq
+        res
+    ) gen_catch (\msg.  (fclose fp) fseq  error msg)
+;
+
+let N = 2500;
+//let N = 500;
+
+let ROM_DIR =
+    DIR^"../evaluation/cephalopode-ICFP/programs/cephalopod/rom_images/"
+;
+
+let tests = map (\n. ROM_DIR^n^".rom") [
+	"Derivative",  "Dot",  "Factorial",  "Return",  "Tripple",
+	"NeuralNetwork"
+];
+
+
+let ant =
+//    mk_ROM_ant ckt "flash" (el 6 tests)
+//    mk_ROM_ant ckt "flash" (sprintf "fl_compiler/_bigmul_M%d.rom" (log2 MEM_SIZE))
+    mk_ROM_ant ckt "flash" "fl_compiler/_benchmark2.rom"
+  and
+    "clk" is_clock N
+  and
+    "reset" is 1 for 2 cycles otherwise 0 until N cycles
+  and
+    "S_cephalopode'req" is 0 for 5 cycles otherwise 1 until N cycles
+;
+wtime (ant fseq 2);
+
+let trl = map (\n. n, 0, 2*N)
+	      (md_expand_vectors ["i4/i10/i3/ram[1023:0]"^nVEC,
+				  "i4/i9/i3/cram[63:0][31:0]",
+				  "i15/stored_status[19:0]"]
+	      )
+;
+
+let ste = STE "-e" vis [] ant [] [];
+//let ste = STE "" vis [] ant [] trl;
+wtime (ste fseq "Time to simulate model\n");
+
+foreach (\i. add_pretty_printer (sprintf "i3/i10/i2/__ROM__flash__[%d]%s" i nVEC) Pnode)
+	(0 upto 100)
+;
+
+let hw2int v = bv2int (bv_ZX (list2bv (wexpr2bool [] (hw_destr v))));
+
+add_pretty_printer "S_mem_unit'op[2:0]" (\i.
+    (i == hw2int MEM_INIT) => "MEM_INIT" |
+    (i == hw2int MEM_READ) => "MEM_READ" |
+    (i == hw2int MEM_WRITE) => "MEM_WRITE" |
+    (i == hw2int SNAP_MEM_READ) => "SNAP_MEM_READ" |
+    (i == hw2int SNAP_PREPARE) => "SNAP_PREPARE" |
+    (i == hw2int SNAP_TAKE) => "SNAP_TAKE" |
+    (sprintf "%b" i))
+;
+
+add_pretty_printer ("i9/S_comb_unit'n"^nVEC) Pnode;
+add_pretty_printer ("S_mem_unit'dout"^nVEC) Pnode;
+add_pretty_printer ("S_mem_unit'din"^nVEC) Pnode;
+add_pretty_printer ("i9/S_prim_unit'n"^nVEC) Pnode;
+
+foreach (\i. add_pretty_printer (sprintf "i4/i10/i3/ram[%d]%s" i nVEC) Pnode)
+	(0 upto 255)
+;
+
+load "waveforms_general.fl";
+
+add_waveform vis (find_vector ckt "i16/stored_status*");
+
+get_trace ste "i16/stored_status[0]";
+get_trace ste "i16/stored_status[1]";
+get_trace ste "i16/stored_status[2]";
+draw_set_time vis (2*N-10);
+
+start_RAM_observer vis 1;
+
+start_RAM_observer vis 1 GRAPH_ADDR;
+
+%%%%%%%%%%%%%%%%%%%%%%
+
+start_RAM_observer vis 1 GRAPH_ADDR;
+start_RAM_observer vis 1 PHYSICAL_ADDR;
+
+dump_RAM ste 7666 (0--2048);
+
+dump_ram_changes ste (0--40);
+
+dump_arbi_rf_changes ste (0--40);
+
+list2fp stdout T "\n" "" "\n" (get_ram_changes ste) (0--300);
+
+list2fp stdout T "\n" "" "\n" (get_rf_changes ste) (0--127);
+
+
+get_trace ste "i15/stored_status[0]";
+
+add_waveform vis ["i15/stored_status[0]"];
+add_waveform vis ["i15/stored_status[19:0]"];
+add_waveform vis ["i4/i10/i3/ram[190]"^nVEC];
+
+%%%%%%%%%%%%%%%%%%%%%%
+add_waveform vis ["i4/i10/i3/ram[240]"^nVEC];
+add_waveform vis ["i4/i10/i3/ram[266:0]"^nVEC];
+
+add_waveform vis ["i4/i10/i3/ram[1023:512]"^nVEC];
+
+add_waveform vis ["i4/i10/i3/ram[511:0]"^nVEC];
+
+add_waveform vis ["i4/i10/i3/ram[99:0]"^nVEC];
+
+let tab_1 = draw_fanin vis (-1) 1 ["i7/i7/i1/i1/i2/mid[62]"];
+tab_1;
+
+
+//draw_set_time vis 500;
+
+//start_RAM_observer vis 1 GRAPH_ADDR;
+//start_RAM_observer vis 1 PHYSICAL_ADDR;
+
+//draw_set_time vis (2*N-10);
+//draw_set_time vis 4800;
+
+
+load "waveforms_12.fl";
+
+
+
+add_waveform vis ["i3/i9/i3/ram[10:0]"^nVEC];
+
+i4/i8/i3/mram[7:0][31:0]"];
+
+
+
+%%%%%%%%%%%%%%%%%
+draw_set_time vis (2*N-10);
+
+load "waveforms_9.fl";
+
+
+
+let turned_X min_time max_time nd =
+    let trl = get_trace ste nd then
+    let HL = get_trace_val ste nd max_time then
+    NOT (HL == (T,T)) => [] |
+    letrec get_change ((t,H,L):rem) = t <= min_time => [] |
+	    t > max_time => get_change rem | [(nd,t)]
+     /\    get_change [] = []
+    in
+    get_change trl
+;
+
+let nds = filter is_user_given (nodes ckt);
+let pots = flatmap (turned_X 3000 3100) nds;
+length pots;
+el 1 pots;
+let v0 = extract_vectors (map fst pots);
+v0;
+
+let pots2 = flatmap (turned_X 3100 3200) nds;
+length pots2;
+let v2 = extract_vectors (map fst pots2);
+length v2;
+
+let find_mem_op op =
+    let req t = (get_trace_val ste "S_mem_unit'req" t) == (T,F) in
+    let target =
+	map (\s. s = "1" => (T,F) | (F,T)) (explode (sprintf "%03b" op))
+    in
+    let tst t = 
+	let HL2 = get_trace_val ste "S_mem_unit'op[2]" t in
+	let HL1 = get_trace_val ste "S_mem_unit'op[1]" t in
+	let HL0 = get_trace_val ste "S_mem_unit'op[0]" t in
+	NOT (req t) AND ([HL2,HL1,HL0] == target)
+    in
+    let tp2 = map fst (get_trace ste "S_mem_unit'op[2]") then
+    let tp1 = map fst (get_trace ste "S_mem_unit'op[1]") then
+    let tp0 = map fst (get_trace ste "S_mem_unit'op[0]") then
+    let tps = qsort (defix -) (setify (tp2@tp1@tp0)) then
+    filter tst tps
+;
+
+// find_mem_op 0x4; // SNAP_PREPARE;
+
+
+load "waveforms_8.fl";
+
+
+load "waveforms_7.fl";
+
+
+let vis = get_current_vis ();
+add_waveform vis ["clk"];
+add_waveform vis ["i3/S_ROM_read'req"];
+add_waveform vis ["i3/S_ROM_read'ack"];
+add_waveform vis ["i3/S_RAM_write'req"];
+add_waveform vis ["i3/S_RAM_write'addr[8:0]"];
+add_waveform vis ["i3/S_RAM_write'data[27:0]"];
+add_waveform vis ["i3/S_RAM_write'ack"];
+add_waveform vis ["i3/i9/done_wr"];
+add_waveform vis ["i3/i9/wr_state[1:0]"];
+
+
+
+
+add_waveform vis ["clk"];
+add_waveform vis ["i3/i8/i3/cram[15:0][31:0]"];
+add_waveform vis ["i4/i8/i3/mram[7:0][31:0]"];
+add_waveform vis ["S_mem_unit'req"];
+add_waveform vis ["S_mem_unit'ack"];
+add_waveform vis ["S_mem_unit'op[2:0]"];
+add_waveform vis ["S_mem_unit'dout[27:0]"];
+add_waveform vis ["i3/i9/i3/ram[15:0][27:0]"];
+add_waveform vis ["i3/S_ROM_read'req"];
+add_waveform vis ["i3/S_ROM_read'addr[7:0]"];
+add_waveform vis ["i3/S_ROM_read'data[27:0]"];
+add_waveform vis ["i3/S_ROM_read'ack"];
+add_waveform vis ["i3/S_RAM_write'req"];
+add_waveform vis ["i3/S_RAM_write'addr[8:0]"];
+add_waveform vis ["i3/S_RAM_write'data[27:0]"];
+add_waveform vis ["i3/S_RAM_write'ack"];
+add_waveform vis ["i3/S_cRAM_write'req"];
+add_waveform vis ["i3/S_cRAM_write'addr[3:0]"];
+add_waveform vis ["i3/S_cRAM_write'ack"];
+add_waveform vis ["i3/S_cRAM_read'req"];
+add_waveform vis ["i3/S_cRAM_read'ack"];
+
+
+Stooooooop;
+
+
+
+add_waveform vis ["clk"];
+add_waveform vis ["i3/i8/i3/cram[15:0][31:0]"];
+add_waveform vis ["i4/i8/i3/mram[7:0][31:0]"];
+add_waveform vis ["S_mem_unit'req"];
+add_waveform vis ["S_mem_unit'ack"];
+add_waveform vis ["S_mem_unit'op[2:0]"];
+add_waveform vis ["S_mem_unit'dout[27:0]"];
+add_waveform vis ["i3/i9/i3/ram[15:0][27:0]"];
+draw_set_minmax vis 0 600;
+//draw_set_minmax vis 650 720;
+
+
+
+draw_set_time vis (2*N-10);
+
+start_RAM_observer vis F 1;
+//start_RAM_observer vis T 1;
+
+
+
+
+
+add_waveform vis ["i3/i53/ram[90:0][27:0]"];
+
+add_waveform vis ["i3/i1/__ROM__flash__[31:0][27:0]"];
+
+load "waveforms_3.fl";
+
+let start_time = fst (el 2 (get_trace ste "S_mem_init'ack"));
+start_time;
+
+draw_set_time vis start_time;
+
+let prim_chs  = get_trace ste "i4/S_prim_unit'ack";
+fprintf stdout "Number of primitive function reductions: %d\n" (length prim_chs/2);
+
+let comb_chs  = get_trace ste "i4/S_comb_unit'ack";
+fprintf stdout "Number of combinator reductions: %d\n" (length comb_chs /2);
+
+let comb_chs  = get_trace ste "i4/S_mem_write'ack";
+fprintf stdout "Number of memory writes: %d\n" (length comb_chs /2);
+
+let mem_show idx =
+    idx = 0 =>
+	let start_time = fst (el 2 (get_trace ste "S_mem_init'ack")) then
+	draw_set_time vis start_time
+    |
+    let times = 
+	   (butfirstn 2 (rev (map fst (get_trace ste "i4/S_mem_write'ack"))))
+    then
+    let t = el (2*idx-1) times then
+    (fprintf stdout "Memory change number %d at time %d\n" idx t) fseq
+    (draw_set_time vis t)
+;
+
+mem_show 0;
+mem_show 1;
+mem_show 2;
+mem_show 3;
+mem_show 4;
+mem_show 10;
+mem_show 11;
+mem_show 12;
+mem_show 13;
+mem_show 14;
+mem_show 15;
+mem_show 16;
+mem_show 17;
+mem_show 18;
+
+mem_show 120;
+mem_show 140;
+mem_show 145;
+mem_show 146;
+mem_show 147;
+mem_show 148;
+mem_show 149;
+mem_show 150;
+
+mem_show 151;
+
+mem_show 206;
+mem_show 207;
+mem_show 208;
+mem_show 209;
+mem_show 210;
+mem_show 211;
+mem_show 212;
+mem_show 213;
+mem_show 214;
+mem_show 215;
+
+
+
+let show_graph idx =
+    idx = 0 => draw_set_time vis start_time |
+    let comb_times = 
+	   (butfirstn 2 (rev (map fst (get_trace ste "i4/S_comb_unit'ack"))))
+    then
+    let prim_times = 
+	   (butfirstn 2 (rev (map fst (get_trace ste "i4/S_prim_unit'ack"))))
+    then
+    let times = qsort (defix -) (comb_times@prim_times) in
+    let t = el (2*idx-1) times then
+    let type = mem t comb_times => "Combinator" | "Primitive function" in
+    (fprintf stdout "%s reduction number %d at time %d\n" type idx t) fseq
+    draw_set_time vis t
+;
+
+show_graph 0;
+show_graph 1;
+show_graph 2;
+show_graph 3;
+show_graph 4;
+show_graph 5;
+show_graph 6;
+show_graph 7;
+show_graph 8;
+show_graph 9;
+show_graph 10;
+show_graph 11;
+show_graph 12;
+show_graph 13;
+show_graph 14;
+show_graph 15;
+show_graph 16;
+show_graph 17;
+show_graph 18;
+show_graph 19;
+show_graph 20;
+show_graph 21;
+show_graph 22;
+
+show_graph 23;
+
+show_graph 24;
+show_graph 25;
+show_graph 26;
+show_graph 27;
+show_graph 28;
+show_graph 29;
+
+show_graph 40;
+show_graph 60;
+
+show_graph 68;
+show_graph 67;
+
+
+add_waveform vis ["i3/i65/ram[79:0][24:0]"];
+
+
+
+
+
+
+
+draw_set_minmax vis 1500 2000;
+add_waveform vis ["i4/i5/S_int2arbi'req"];
+add_waveform vis ["i4/i5/S_int2arbi'ack"];
+add_waveform vis ["i4/i5/S_int2arbi'idx[1:0]"];
+add_waveform vis ["i4/i5/S_int2arbi'arg[6:0]"];
+add_waveform vis ["i3/i65/ram[39:0][24:0]"];
+
+
+add_waveform vis ["i4/i5/S_arb_rf_new'req", "i4/i5/S_arb_rf_new'ack"];
+add_waveform vis ["i4/i5/S_arb_rf_length'req", "i4/i5/S_arb_rf_length'ack"];
+
+add_waveform vis ["i4/i5/S_arb_rf_alloc'req", 
+		  "i4/i5/S_arb_rf_alloc'idx[1:0]",
+		  "i4/i5/S_arb_rf_alloc'cnt[5:0]",
+		  "i4/i5/S_arb_rf_alloc'ack"
+];
+
+add_waveform vis ["i6/i3/i4/i15/a'int2arbi'ack"];
+add_waveform vis ["i6/i3/i4/i15/i1/arbi_rf[7:0][6:0]"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_push'req"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_push'ack"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_push'i'idx[2:0]"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_push'i'i[6:0]"];
+add_waveform vis ["i6/r'mem_read'o'dout[24:0]"];
+add_waveform vis ["i6/i3/i4/arbi'mem_read'req"];
+add_waveform vis ["i6/i3/i4/arbi'mem_read'ack"];
+add_waveform vis ["i6/i3/i4/i15/i1/cur_free[7:0]"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_new'req"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_new'ack"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_length'req"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_length'ack"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_length'o'len[4:0]"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_alloc'req"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_alloc'ack"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_alloc'i'idx[2:0]"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_alloc'i'cnt[4:0]"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_get0'req"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_get0'i'idx[2:0]"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_get0'i'i[4:0]"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_get0'o'v[6:0]"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_get0'ack"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_get1'req"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_get1'ack"];
+add_waveform vis ["i6/i3/i4/i15/a'arbi2int'ack"];
+add_waveform vis ["i6/i3/i4/i15/a'arbi2int'o'res[24:0]"];
+add_waveform vis ["mem_write'req"];
+add_waveform vis ["mem_write'ack"];
+add_waveform vis ["mem_write'in'addr[6:0]"];
+add_waveform vis ["mem_write'in'din[24:0]"];
+add_waveform vis ["i1/i65/ram[39:0][24:0]"];
+
+
+add_waveform vis ["i6/i3/i4/i15/a'int2arbi'req"];
+add_waveform vis ["i6/i3/i4/i15/a'int2arbi'ack"];
+add_waveform vis ["i6/i3/i4/i15/i1/arbi_rf[7:0][6:0]"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_push'req"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_push'ack"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_push'i'idx[2:0]"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_push'i'i[6:0]"];
+add_waveform vis ["i6/r'mem_read'o'dout[24:0]"];
+add_waveform vis ["i6/i3/i4/arbi'mem_read'req"];
+add_waveform vis ["i6/i3/i4/arbi'mem_read'ack"];
+add_waveform vis ["i6/i3/i4/i15/i1/cur_free[7:0]"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_new'req"];
+add_waveform vis ["i6/i3/i4/i15/a'arb_rf_new'ack"];
+
+draw_set_minmax vis 1500 1600;
+
+let tab_13 = draw_fanin vis (-1) 2 ["i6/i3/i4/i15/i1/arbi_rf[127:0][6:0]"];
+tab_13;
+draw_show_values vis tab_13 T;
+expand_fanin vis tab_13 (-1) 1 ["i6/i3/i4/i15/i1/tmp_push_arbi_rf[127:0][6:0]"];
+expand_fanin vis tab_13 (-1) 1 ["i6/i3/i4/i15/i1/r_push_addr[7:0]"];
+
+
+
+
+
+add_waveform vis ["i6/i3/i4/i15/i1/arbi_rf[7:0][6:0]"];
+
+draw_set_minmax vis 1500 2000;
+add_waveform vis ["clk"];
+add_waveform vis ["boot_run'ack"];
+add_waveform vis ["i1/i65/ram[24:0][24:0]"];
+add_waveform vis ["i6/a'run_comb'req"];
+add_waveform vis ["i6/a'set_comb'i'comb[3:0]"];
+add_waveform vis ["i6/a'run_comb'o'res[24:0]"];
+add_waveform vis ["i6/arg_addrs[6:0][6:0]"];
+add_waveform vis ["i6/a'set_comb'req"];
+add_waveform vis ["i6/a'set_comb'i'comb[3:0]"];
+add_waveform vis ["i6/a'set_alloc'req"];
+add_waveform vis ["i6/a'set_arg'req"];
+add_waveform vis ["i6/a'set_arg'i'idx[2:0]"];
+add_waveform vis ["i6/a'set_arg'i'addr[6:0]"];
+add_waveform vis ["i6/r'mem_write'req"];
+add_waveform vis ["i6/r'mem_write'i'p[6:0]"];
+add_waveform vis ["i6/r'mem_write'i'din[24:0]"];
+add_waveform vis ["i6/a'get_comb_alloc_content'req"];
+add_waveform vis ["i6/a'get_comb_alloc_content'i'idx[1:0]"];
+add_waveform vis ["i6/a'get_comb_alloc_content'o'res[24:0]"];
+
+add_waveform vis ["i6/i1/i2/l'main'p[6:0]"];
+add_waveform vis ["i6/i1/i2/l'main'up[6:0]"];
+add_waveform vis ["i6/i1/state'reduction[18:0]"];
+
+add_waveform vis ["mem_read'req"];
+add_waveform vis ["mem_read'in'addr[6:0]"];
+add_waveform vis ["mem_read'ack"];
+add_waveform vis ["mem_read'out'dout[24:0]"];
+
+let tab_1 = draw_fanin vis (0) 100 ["boot_run'ack"];
+tab_1;
+
+draw_set_time vis 1950;
+
+start_RAM_observer vis F 1;
+

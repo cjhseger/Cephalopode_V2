@@ -1,0 +1,756 @@
+// Make sure fl is invoked with -C (or --cephalopode) flag.
+(get_combinator_expression "hd" fseq ())
+catch error "Need to run fl with -C flag!";
+
+let use_optimizer = ref T;
+let use_Spp	  = ref T;
+let use_L	  = ref T;
+let use_Cn	  = ref T;
+
+// Get the Cephalopode type declarations needed for the ROM (node).
+cload (DIR^"../types.fl");
+
+// Use tcl//tk to draw the tree for the term e.
+let draw_terms defs =
+    let tmp_dir = mktempd "draw_term" then
+    let dot_file = sprintf "%s/graph.dot" tmp_dir then
+    let fp = fopen dot_file "w" then
+    (fprintf fp "digraph G {\n") fseq
+    (fprintf fp "node [shape=circle];\n") fseq
+    (fprintf fp "center = 1;\n") fseq
+    (fprintf fp "margin = 0.5;\n") fseq
+    (fprintf fp "ordering=out;\n") fseq
+    let pr1 (uid,e) =
+	fprintf fp "f%d [shape=box,style=filled,label=\"UD%d\"];\n" uid uid
+    in
+    (foreach pr1 defs) fseq
+    (fprintf fp "{rank=same") fseq
+    (foreach (\(uid,e). fprintf fp " f%d" uid) defs) fseq
+    (fprintf fp "}\n") fseq
+    //
+    let rcnt = ref 0 then
+    let dr (uid,e) =
+	let to = base_draw_term fp rcnt e then
+	fprintf fp "f%d -> n%d [color=black];\n" uid to
+    in
+    (foreach dr defs) fseq
+    (fprintf fp "\n}\n") fseq
+    (fclose fp) fseq
+    let w = tcl_eval [sprintf "display_dot %s {} {}" dot_file] then
+    (system (sprintf "/bin/rm -f %s" dot_file)) fseq
+    ()
+;
+
+
+letrec term_substitute sub (APPLY E1 E2) =
+    APPLY (term_substitute sub E1) (term_substitute sub E2)
+ /\    term_substitute sub (CONS E1 E2) =
+    CONS (term_substitute sub E1) (term_substitute sub E2)
+ /\    term_substitute sub (LAMBDA v E) =
+    let sub' = filter (\p. fst p != v) sub in
+    LAMBDA v (term_substitute sub' E)
+ /\    term_substitute sub (VAR v) =
+    (assoc v sub) catch (VAR v)
+ /\    term_substitute sub other = other
+;
+
+cletrec free (APPLY E1 E2) = (free E1) union (free E2)
+ /\     free (LAMBDA v E) = (free E) subtract [v]
+ /\     free (VAR v) = [v]
+ /\     free (CONS E1 E2) = (free E1) union (free E2)
+ /\     free other = []
+;
+
+
+letrec is_lists (APPLY (APPLY (LEAF (PRIM_FN 8)) e) l) =
+	    (is_lists e) AND (is_lists l)
+ /\    is_lists NIL = T
+ /\    is_lists (LEAF (INT i)) = T
+ /\    is_lists (APPLY (LEAF (USERDEF 670)) (LEAF (INT i))) = T
+ /\    is_lists (APPLY (APPLY (LEAF (PRIM_FN 54)) f) s) =
+	    (is_lists f) AND (is_lists s)
+ /\    is_lists other = F
+;
+
+letrec convert_lists (APPLY (APPLY (LEAF (PRIM_FN 8)) e) l) = 
+    CONS (convert_lists e) (convert_lists l)
+ /\    convert_lists NIL = NIL
+ /\    convert_lists (LEAF (INT i)) = (LEAF (INT i))
+ /\    convert_lists (APPLY (LEAF (USERDEF 670)) (LEAF (INT i))) = LEAF (INT (-1*i))
+ /\    convert_lists (APPLY (APPLY (LEAF (PRIM_FN 54)) f) s) =
+    CONS (convert_lists f) (convert_lists s)
+;
+
+let clean_term E =
+    is_lists E => convert_lists E |
+    letrec clean (APPLY (LAMBDA v1 E1) (VAR v2)) =
+			term_substitute [(v1, VAR v2)] (clean E1)
+     /\    clean (APPLY E1 E2) = APPLY (clean E1) (clean E2)
+     /\    clean (LAMBDA v E) = (LAMBDA v (clean E))
+     /\    clean (CONS E1 E2) = CONS (clean E1) (clean E2)
+     /\    clean other = other
+    in
+    (clean E)
+;
+
+
+lettype cterm = cAPPLY cterm cterm
+	      | cLAMBDA string cterm
+	      | cCONS cterm cterm
+	      | cVAR string
+	      | cPRIM string
+	      | cCOMB string
+	      | cUSERDEF int
+	      | cINT int
+	      | cNIL
+;
+
+// Use tcl//tk to draw the tree for the term e.
+let draw_cterms defs =
+    let tmp_dir = mktempd "draw_term" then
+    let dot_file = sprintf "%s/graph.dot" tmp_dir then
+    let fp = fopen dot_file "w" then
+    (fprintf fp "digraph G {\n") fseq
+    (fprintf fp "node [shape=circle];\n") fseq
+    (fprintf fp "center = 1;\n") fseq
+    (fprintf fp "margin = 0.5;\n") fseq
+    (fprintf fp "ordering=out;\n") fseq
+    let pr1 (uid,e) =
+	fprintf fp "f%d [shape=box,style=filled,label=\"UD%d\"];\n" uid uid
+    in
+    (foreach pr1 defs) fseq
+    (fprintf fp "{rank=same") fseq
+    (foreach (\(uid,e). fprintf fp " f%d" uid) defs) fseq
+    (fprintf fp "}\n") fseq
+    //
+    let rcnt = ref 0 then
+    letrec draw (cAPPLY E1 E2) =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        let l = draw E1 then
+        let r = draw E2 then
+        (fprintf fp "n%d [label = \"@\"];\n" n) fseq
+        (fprintf fp "n%d -> n%d [style=solid, color=red];\n" n l) fseq
+        (fprintf fp "n%d -> n%d [style=solid, color=black];\n" n r) fseq
+        n
+     /\    draw (cCONS E1 E2) =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        let l = draw E1 then
+        let r = draw E2 then
+        (fprintf fp "n%d [label = \":\"];\n" n) fseq
+        (fprintf fp "n%d -> n%d [style=solid, color=red];\n" n l) fseq
+        (fprintf fp "n%d -> n%d [style=solid, color=black];\n" n r) fseq
+        n
+     /\    draw (cLAMBDA v E) =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        let l = draw (cVAR v) then
+        let r = draw E then
+        (fprintf fp "n%d [label = \"L\"];\n" n) fseq
+        (fprintf fp "n%d -> n%d [style=solid, color=red];\n" n l) fseq
+        (fprintf fp "n%d -> n%d [style=solid, color=black];\n" n r) fseq
+        n
+     /\    draw (cVAR v) =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        (fprintf fp "n%d [shape=plaintext, label = \"%s\"];\n" n v) fseq
+        n
+     /\    draw (cPRIM s) =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        (fprintf fp "n%d [shape=plaintext, label = \"%s\"];\n" n s) fseq
+        n
+     /\    draw (cCOMB s) =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        (fprintf fp "n%d [shape=plaintext, label = \"%s\"];\n" n s) fseq
+        n
+     /\    draw (cINT i) =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        (fprintf fp "n%d [shape=plaintext, label = \"%d\"];\n" n i) fseq
+        n
+     /\    draw (cUSERDEF i) =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        (fprintf fp "n%d [shape=plaintext, label = \"U%d\"];\n" n i) fseq
+        n
+     /\    draw cNIL =
+        let n = deref rcnt then
+        (rcnt := (n+1)) fseq
+        (fprintf fp "n%d [label = \"[]\"];\n" n) fseq
+        n
+    in
+    let dr (uid,e) =
+	let to = draw e then
+	fprintf fp "f%d -> n%d [color=black];\n" uid to
+    in
+    (foreach dr defs) fseq
+    (fprintf fp "\n}\n") fseq
+    (fclose fp) fseq
+    let w = tcl_eval [sprintf "display_dot %s {} {}" dot_file] then
+    (system (sprintf "/bin/rm -f %s" dot_file)) fseq
+    ()
+;
+
+
+let user_def_tbl = 
+    let get_primfn name = LEAF (PRIM_FN (name2primfn name)) in
+    let get_userdef name = LEAF (USERDEF (get_userdef_id name)) in
+    [
+	(get_userdef "T", cINT 1, [], "T"),
+	(get_userdef "F", cINT 0, [], "F"),
+	(get_primfn "P_TUPLE", cPRIM "TUPLE", [], "TUPLE"),
+	(get_userdef "fst", cPRIM "fst", [T], "fst"),
+	(get_userdef "snd", cPRIM "snd", [T], "snd"),
+	(get_primfn "P_COND", cPRIM "ITE", [T,F,F], "ITE"),
+	(get_userdef "=", cPRIM "==", [T,T], "=="),
+	(get_userdef "!=", cPRIM "!=", [T,T], "!="),
+	(get_userdef "i_ge", cPRIM ">=", [T,T], ">="),
+	(get_userdef "i_gt", cPRIM ">", [T,T], ">"),
+	(get_userdef "AND", cPRIM "&", [T,T], "&"),
+	(get_userdef "OR", cPRIM "|", [T,T], "|"),
+	(get_userdef "NOT", cPRIM "~", [T], "!"),
+	(get_userdef "i_minus", cPRIM "-", [T,T], "-"),
+	(get_userdef "i_plus",  cPRIM "+", [T,T], "+"),
+	(get_userdef "i_mul",  cPRIM "*", [T,T], "*"),
+	(get_userdef "hd", cPRIM "hd", [T], "HD"),
+	(get_userdef "tl", cPRIM "tl", [T], "TL"),
+	(get_primfn "P_TAIL", cPRIM "tl", [T], "TL"),
+	(get_primfn "P_HEAD", cPRIM "hd", [T], "HD"),
+	(get_userdef ":",  cPRIM "CONS", [F,F], "CONS"),
+	(get_primfn "P_CONS", cPRIM "CONS", [F,F], "CONS")
+    ]
+;
+
+//user_def_tbl;
+
+clet is_ceph_primitive uid =
+    let idx = find_first0 (\t. fst t = uid) user_def_tbl then
+    idx != 0
+;
+
+let ceph_primitive_name uid =
+    let idx = find_first0 (\t. fst t = uid) user_def_tbl then
+    val (_,_,_,name) = el idx user_def_tbl then
+    name
+;
+
+clet primtive_strictness uid =
+    let idx = find_first0 (\t. fst t = uid) user_def_tbl then
+    val (_,_,strictness,_) = el idx user_def_tbl then
+    strictness
+;
+
+let userdef2ceph uid =
+    let idx = find_first0 (\t. fst t = uid) user_def_tbl then
+    val (_,ceph,_,_) = el idx user_def_tbl then
+    ceph
+;
+
+let is_userdef (LEAF (USERDEF i)) = T
+ /\ is_userdef other = F
+;
+
+let get_uid (LEAF (USERDEF i)) = i;
+
+letrec term2cterm (APPLY E1 E2) = cAPPLY (term2cterm E1) (term2cterm E2)
+ /\    term2cterm (LAMBDA v E) = cLAMBDA v (term2cterm E)
+ /\    term2cterm (CONS E1 E2) = cCONS (term2cterm E1) (term2cterm E2)
+ /\    term2cterm (VAR v) = cVAR v
+ /\    term2cterm (NIL) = cNIL
+ /\    term2cterm (LEAF (INT i)) = cINT i
+ /\    term2cterm (LEAF (PRIM_FN i)) = 
+	    i == (-99) => cCOMB "S''" |
+	    i <= (-2000) => cCOMB (sprintf "Cn%d" (-1*i-2000)) |
+	    i <= (-1000) => cCOMB (sprintf "L%d" (-1*i-1000)) |
+	    let nm = primfn2name i in
+	    let cn = cCOMB (assoc nm [("P_S", "S"), ("P_K", "K"), ("P_I", "I"),
+			        ("P_C", "C"), ("P_B", "B"), ("P_Y", "Y"),
+			        ("P_SPRIME", "S'"), ("P_CPRIME", "C'"),
+			        ("P_BSTAR", "B*"), ("P_BPRIME", "B'")])
+	    in
+	    cn //catch
+gen_catch (\msg.
+(fprintf stderr "cn fail: %s\n", msg) fseq
+	    (nm = "P_COND" => cPRIM "ITE" | cPRIM nm)
+)
+ /\    term2cterm ud assuming (is_userdef ud) = 
+	    (is_ceph_primitive ud) => userdef2ceph ud |
+	    val (LEAF (USERDEF i)) = ud in
+	    cUSERDEF i
+ /\    term2cterm other =
+	eprintf "term2cterm failed for: %s\n" (DBGterm other)
+;
+
+let basic_pre_process expr_name =
+    let u_idx = get_userdef_id expr_name then
+    let cexprs = ref [] then
+    let is_defined uid = (find_first0 (\t. fst t = uid) (deref cexprs)) != 0 in
+    letrec process uid =
+	is_defined uid => () |
+	(cexprs := ((uid,ref NONE):(deref cexprs))) fseq
+	let E = snd (get_userdef_expression uid) then
+	let E' = clean_term E then
+	letrec do (APPLY (LEAF (USERDEF 670)) (LEAF (INT i))) =
+		LEAF (INT (-1*i))
+	 /\    do (APPLY E1 E2) = APPLY (do E1) (do E2)
+	 /\    do (CONS E1 E2)  = CONS (do E1) (do E2)
+	 /\    do (LAMBDA v E)  = LAMBDA v (do E)
+	 /\    do E assuming (is_ceph_primitive E) = E
+	 /\    do E assuming (is_userdef E) =
+		val (LEAF (USERDEF id)) = E in
+		((process id) fseq E)
+	 /\    do other = other
+	in
+	let res = do E' then
+	let idx = find_first (\t. fst t = uid) (deref cexprs) then
+	let rc = snd (el idx (deref cexprs)) then
+	rc := (SOME res)
+    in
+    (process u_idx) fseq
+    map (\p. fst p, get_value (deref (snd p))) (deref cexprs)
+;
+
+let get_strictness strictness_db E =
+    letrec get_args cur (LAMBDA v1 E) = get_args (v1:cur) E
+     /\    get_args cur other = cur,other
+    in
+    val (args, body) = get_args [] E then
+    //
+    letrec is_strict v args (APPLY E1 E2) = is_strict v (E2:args) E1
+     /\    is_strict v args (CONS E1 E2) = F
+     /\    is_strict v args E assuming (is_ceph_primitive E) =
+	let strictness = primtive_strictness E then
+	length strictness > length args => F |
+	letrec check (st:sts) (arg:args) =
+	    (st => (is_strict v [] arg) | F) OR (check sts args)
+	 /\    check [] _ = F
+	in
+	check strictness args
+     /\    is_strict v args (LEAF (USERDEF uid)) =
+	let idx = find_first0 (\p. fst p = uid) strictness_db then
+	idx = 0 => F |
+	val (_, _, strictness) = el idx strictness_db then
+	length strictness > length args => F |
+	letrec check (st:sts) (arg:args) =
+	    (st => (is_strict v [] arg) | F) OR (check sts args)
+	 /\    check [] _ = F
+	in
+	check strictness args
+     /\   is_strict v args (VAR v2) = (v = v2)
+     /\   is_strict v args other = F
+    in
+    map (\v. is_strict v [] body) (rev args)
+;
+
+let pre_process expr_name =
+    let base = basic_pre_process expr_name then
+    letrec do db ((uid,t):rem) =
+	let strictness = get_strictness db t then
+	let db' = (uid, t, strictness):db then
+	do db' rem
+     /\   do db [] = db
+    in
+    do [] base
+;
+
+let S1 = LEAF (PRIM_FN (-1001));
+
+let is_VAR (VAR s) = T
+ /\ is_VAR other = F
+;
+
+let is_forced forced_db (LEAF (INT i)) = T
+ /\ is_forced forced_db (CONS E1 E2) = T
+ /\ is_forced forced_db (NIL) = T
+ /\ is_forced forced_db (LEAF (USERDEF ui)) = mem ui forced_db
+ /\ is_forced forced_db other = F
+;
+
+let rearrange forced_db strictness_db E =
+    letrec process args (APPLY E1 E2) = process (E2:args) E1
+     /\   process args (CONS E1 E2) = CONS (process [] E1) (process [] E2)
+     /\    process args (LAMBDA v E) =
+	let cur = LAMBDA v (process [] E) in
+	letrec build1 (arg:args) cur =
+	    let arg' = process [] arg in
+	    build1 args (APPLY cur arg')
+	 /\    build1 [] cur = cur
+	in
+	build1 args cur
+     /\   process args  fn assuming (is_ceph_primitive fn) =
+	let strictness = primtive_strictness fn then
+	val (new_args, args) =
+	    let la = length args in
+	    let ls = length strictness in
+	    la >= ls => ([], args) |
+	    let new_args =
+		map (\i. sprintf "__ArG%d" i) (1 upto (ls-la))
+	    then
+	    let args' = args@(map VAR (rev new_args)) in
+	    (new_args, args')
+	in
+	letrec build2 (st:sts) (arg:args) cur =
+	    (NOT st) OR (is_forced forced_db arg) =>
+		let arg' = process [] arg in
+		build2 sts args (APPLY cur arg')
+	    |
+	    let arg' = process [] arg in
+	    build2 sts args (APPLY arg' cur)
+	 /\    build2 [] (arg:args) cur =
+	    let arg' = process [] arg in
+	    build2 [] args (APPLY cur arg')
+	 /\    build2 [] [] cur = cur
+	 /\    build2 strs [] cur =
+		eprintf "|strictness| > |args| for %s" (DBGterm fn)
+	in
+	itlist (\n.\e. (LAMBDA n e)) new_args (build2 strictness args fn)
+     /\   process args  (LEAF (USERDEF uid)) =
+	let idx = find_first0 (\p. fst p = uid) strictness_db then
+	idx = 0 => 
+	    letrec build3 (arg:args) cur =
+		let arg' = process [] arg in
+		build3 args (APPLY cur arg')
+	     /\    build3 [] cur = cur
+	    in
+	    build3 args (LEAF (USERDEF uid))
+	|
+	val (_, _, strictness) = el idx strictness_db then
+(fprintf stderr "Uid:%d has strictness %S\n" uid (map (\s.s=>"T"|"F") strictness)) fseq
+	letrec build4 (st:sts) (arg:args) cur =
+	    let arg' = process [] arg in
+	    (NOT st) OR (is_forced forced_db arg) =>
+		build4 sts args (APPLY cur arg')
+	    |
+		build4 sts args (APPLY arg' cur)
+	 /\    build4 [] (arg:args) cur =
+	    let arg' = process [] arg in
+	    build4 [] args (APPLY cur arg')
+	 /\    build4 [] [] cur = cur
+	in
+	build4 strictness args (LEAF (USERDEF uid))
+     /\   process args other = other
+    in
+    process [] E
+;
+
+let S_COMB = LEAF (PRIM_FN (name2primfn "P_S")); 
+let C_COMB = LEAF (PRIM_FN (name2primfn "P_C")); 
+let B_COMB = LEAF (PRIM_FN (name2primfn "P_B")); 
+let K_COMB = LEAF (PRIM_FN (name2primfn "P_K")); 
+let I_COMB = LEAF (PRIM_FN (name2primfn "P_I")); 
+let BSTAR_COMB = LEAF (PRIM_FN (name2primfn "P_BSTAR")); 
+let CPRIME_COMB = LEAF (PRIM_FN (name2primfn "P_CPRIME")); 
+let SPRIME_COMB = LEAF (PRIM_FN (name2primfn "P_SPRIME")); 
+let BPRIME_COMB = LEAF (PRIM_FN (name2primfn "P_BPRIME")); 
+
+let L_COMB cnt  = LEAF (PRIM_FN (-1000-cnt)); 
+let Cn_COMB cnt = LEAF (PRIM_FN (-2000-cnt));
+let SPRIMEPRIME_COMB = LEAF (PRIM_FN (-99)); 
+
+clet is_leftmost v E =
+    letrec is_leftmost cnt (APPLY E1 E2) =
+	mem v (free E2) => F | is_leftmost (cnt+1) E1
+     /\    is_leftmost cnt (VAR v1) = (v1 = v) AND (cnt > 0)
+     /\    is_leftmost cnt other = F
+    in
+    (is_leftmost 0 E)
+;
+
+clet length_C_sequance v E =
+    NOT (mem v (free E)) => 0 |
+    letrec walk cnt (APPLY E1 E2) =
+	mem v (free E2) => cnt | walk (cnt+1) E1
+     /\    walk cnt other = cnt
+    in
+    (walk 0 E)
+;
+
+
+letrec abstract v E assuming (deref use_L AND (is_leftmost v E)) =
+    letrec build5 cnt (APPLY E1 E2) = APPLY (build5 (cnt+1) E1) E2
+     /\    build5 cnt (VAR v1) = L_COMB cnt
+     /\    build5 cnt other = error "Cannot happen??"
+    in
+    build5 0 E
+ /\    abstract v E assuming (deref use_Cn AND ((length_C_sequance v E) >= 2)) =
+    let cnt = length_C_sequance v E in
+    letrec build6 i (APPLY E1 E2) = 
+	i > 0 => APPLY (build6 (i-1) E1) E2 |
+	APPLY (Cn_COMB cnt) (abstract v (APPLY E1 E2))
+     /\   build6 i other =
+	eprintf "Illegal term (%s)" (DBGterm other)
+    in
+    build6 cnt E
+ /\    abstract v (APPLY E1 E2) =
+    let is_needed1 = mem v (free E1) in
+    let is_needed2 = mem v (free E2) in
+    is_needed1 =>
+	is_needed2 =>
+	    APPLY (APPLY S_COMB (abstract v E1)) (abstract v E2)
+	|
+	    APPLY (APPLY C_COMB (abstract v E1)) E2
+    |
+	is_needed2 =>
+	    APPLY (APPLY B_COMB E1) (abstract v E2)
+	|
+	    APPLY K_COMB (APPLY E1 E2)
+ /\   abstract v (VAR v2) assuming (v == v2) = I_COMB
+ /\   abstract v other = error "Should never happen!"
+;
+
+letrec compile2comb (APPLY E1 E2) = APPLY (compile2comb E1) (compile2comb E2)
+ /\    compile2comb (CONS E1 E2)  = CONS (compile2comb E1) (compile2comb E2)
+ /\    compile2comb (LAMBDA v E) = abstract v (compile2comb E)
+ /\    compile2comb other = other
+;
+
+letrec optimize_comb (APPLY cC cI)
+	    assuming (deref use_L AND ((cC == C_COMB) AND (cI == I_COMB)))
+    = (L_COMB 1)
+ /\    optimize_comb (APPLY cSPRIME cS)
+	    assuming (deref use_Spp AND ((cSPRIME == SPRIME_COMB) AND (cS == S_COMB)))
+    = SPRIMEPRIME_COMB
+ /\    optimize_comb (APPLY (APPLY cS (APPLY cK1 p)) (APPLY cK2 q))
+	    assuming ((cS == S_COMB) AND (cK1 == K_COMB) AND (cK2 == K_COMB))
+    = APPLY K_COMB (APPLY p q)
+ /\    optimize_comb (APPLY (APPLY cS (APPLY cK p)) cI)
+	    assuming ((cS == S_COMB) AND (cK == K_COMB) AND (cI == I_COMB))
+    = p
+ /\    optimize_comb (APPLY (APPLY cS (APPLY cK p)) (APPLY (APPLY cB q) r))
+	    assuming ((cS == S_COMB) AND (cK == K_COMB) AND (cB == B_COMB))
+    = APPLY (APPLY (APPLY BSTAR_COMB p) q) r
+ /\    optimize_comb (APPLY (APPLY cS (APPLY cK p)) q)
+	    assuming ((cS == S_COMB) AND (cK == K_COMB))
+    = APPLY (APPLY B_COMB p) q
+ /\    optimize_comb (APPLY (APPLY cS (APPLY (APPLY cB p) q)) (APPLY cK r))
+	    assuming ((cS == S_COMB) AND (cK == K_COMB) AND (cB == B_COMB))
+    = APPLY (APPLY (APPLY CPRIME_COMB p) q) r
+ /\    optimize_comb (APPLY (APPLY cS p) (APPLY cK q)) 
+	    assuming ((cS == S_COMB) AND (cK == K_COMB))
+    = APPLY (APPLY C_COMB p) q
+ /\    optimize_comb (APPLY (APPLY cS (APPLY (APPLY cB p) q)) r)
+	    assuming ((cS == S_COMB) AND (cB == B_COMB))
+    = APPLY (APPLY (APPLY SPRIME_COMB p) q) r
+ /\    optimize_comb (APPLY (APPLY cB p) cI)
+	    assuming ((cB == B_COMB) AND (cI == I_COMB))
+    = p
+ /\    optimize_comb (APPLY cB1 cB2)
+	    assuming ((cB1 == B_COMB) AND (cB2 == B_COMB))
+    = BPRIME_COMB
+ /\    optimize_comb (APPLY E1 E2) = APPLY (optimize_comb E1) (optimize_comb E2)
+ /\    optimize_comb (CONS E1 E2) = CONS (optimize_comb E1) (optimize_comb E2)
+ /\    optimize_comb other = other
+;
+
+
+let build_forced_db db =
+    let is_already_whnf (uid,E,strictness) = (is_forced [] E) => [uid] | [] in
+    flatmap is_already_whnf db
+;
+
+letrec repeat fn E =
+    let E' = fn E then
+    E' == E => E | repeat fn E'
+;
+
+let compile expr_name =
+    let db = pre_process expr_name then
+    let forced_db = build_forced_db db then
+    let process (uid, E, strictness) =
+	let E' = rearrange forced_db db E in
+	let comb = compile2comb E' in
+	let comb' = (deref use_optimizer) => repeat optimize_comb comb | comb in
+	(uid, term2cterm comb')
+    in
+    map process db
+;
+
+let DBG_pre_process expr_name =
+    let db = pre_process expr_name then
+    draw_cterms (map (\(uid,e,strictness). uid,term2cterm e) db)
+;
+
+let DBG_rearrange expr_name =
+    let db = pre_process expr_name then
+    let forced_db = build_forced_db db then
+    let process (uid, E, strictness) =
+        let E' = rearrange forced_db db E in
+        (uid, term2cterm E')
+    in
+    draw_cterms (map process db)
+;
+
+let DBG_compile expr_name optimize->T =
+    let db = pre_process expr_name then
+    let forced_db = build_forced_db db then
+    let process (uid, E, strictness) =
+	let E' = rearrange forced_db db E in
+	let comb = compile2comb E' in
+	let comb' = optimize => optimize_comb (optimize_comb comb) | comb in
+	(uid, term2cterm comb')
+    in
+    draw_cterms (map process db)
+;
+
+let node2romline {n::node} =
+    let pr b = b=> "1" | "0" in
+    list2str T "" "" "" pr (wexpr2bool [] (hw_destr n))
+;
+
+let ccomb2node nm =
+    (string_hd nm) = "L" =>
+	let i = sscanf "L%d" nm then
+	'0<--ntype? G_COMB <--comb? C_L <--comb_idx? ''i
+    |
+    (str_is_prefix "Cn" nm) =>
+	let i = sscanf "Cn%d" nm then
+	'0<--ntype? G_COMB <--comb? C_Cn <--comb_idx? ''i
+    |
+    let tbl = [ ("S", C_S),
+		("K", C_K),
+		("I", C_I),
+		("C", C_C),
+		("B", C_B),
+		("Y", C_Y),
+		("S'", C_SPRIME),
+		("S''", C_SPRIMEPRIME),
+		("C'", C_CPRIME),
+		("B*", C_BSTAR),
+		("B'", C_BPRIME) ] in
+    let c = (assoc nm tbl)
+	    catch (eprintf "1Failed to find %s in %S\n" nm (map fst tbl))
+    then
+    ('0<--ntype? G_COMB <-- comb? c)
+;
+
+let cprim2node nm =
+    let tbl = [ ("+", P_PLUS),
+		("-", P_MINUS),
+		("*", P_TIMES),
+//		("P_DIV", P_DIV),
+//		("P_MOD", P_MOD),
+		("==", P_EQ),
+		("!=", P_NEQ),
+		(">", P_GT),
+		(">=", P_GEQ),
+		("&", P_AND),
+		("|", P_OR),
+		("~", P_NOT),
+		("ITE", P_COND),
+		("fst", P_FST),
+		("snd", P_SND),
+		("TUPLE", P_TUPLE),
+		("P_TUPLE", P_TUPLE),
+		("hd", P_HD),
+		("tl", P_TL),
+		("CONS", P_CONS),
+		("P_CONS", P_CONS),
+		("P_NIL", P_NIL) ]
+    in
+    let p = (assoc nm tbl)
+	    catch (eprintf "2Failed to find %s in %S\n" nm (map fst tbl))
+    then
+    ('0<--ntype? G_PRIM <-- prim? p)
+;
+
+
+let mk_rom pgm_list =
+    let comb_cnt = ref {[]:: (string#int) list} in
+    let inc_comb {nm::string} =
+	let cur = (assoc nm (deref comb_cnt)) catch 0 in
+	let new = (nm, (cur+1)):(filter (\p.fst p != nm) (deref comb_cnt)) then
+	(comb_cnt := new)
+    in
+    // Put a dummy all 0's in location 0
+    let i0 = node2romline '0 then
+    let plen = length pgm_list then
+    // Make room for one indirection node for each top-level function
+    let rres = ref (replicate (plen+1) i0) then 
+    let userdef_tbl = zip (map fst pgm_list) (1--plen) then
+    let emit1 nd =
+	let line =  node2romline nd then
+	(rres := (line:(deref rres))) fseq
+	(length (deref rres))-1
+    in
+    letrec emit (cAPPLY e1 e2) =
+        let n1 = emit e1 then
+        let n2 = emit e2 then
+        emit1 ('0 <--ntype? G_APP <--left? ''n1 <--right? ''n2)
+     /\   emit (cCONS e1 e2) =
+        let n1 = emit e1 then
+        let n2 = emit e2 then
+        emit1 ('0 <--ntype? G_CONS <--left? ''n1 <--right? ''n2)
+     /\   emit (cPRIM nm) = emit1 (cprim2node nm)
+     /\   emit (cCOMB nm) = (inc_comb nm) fseq (emit1 (ccomb2node nm))
+     /\   emit (cUSERDEF uid) =
+	    let idx =
+		(assoc uid userdef_tbl)
+		catch eprintf "Cannot find USERDEF %d" uid
+	    then
+	    emit1 ('0<--ntype? G_INDIR<--left? ''idx)
+     /\   emit (cNIL) = emit1 ('0<--ntype? G_NIL)
+     /\   emit (cINT i) =
+        // Will it fit in a INT or does it need an AINT list?
+        let fit = i >= 0 => i < (2**(INT_SZ-1)) | (-1*i) <= (2**(INT_SZ-1)) in
+        fit => emit1 ('0<--ntype ? G_INT <--int   ? ''i) |
+        // Need an arbitrary precision list
+        letrec emit_aint [i] = emit1 ('0<--ntype ? G_AINT <--aint   ? ''i)
+          /\   emit_aint (i:rem) =
+            let addr = emit_aint rem then
+            let nd = '0<--ntype ? G_AINT
+                       <--aint  ? ''i
+                       <--left  ? ''addr
+            in
+            emit1 nd
+        in
+        let cnv i =
+            let es = explode (sprintf "%b" i) in
+            let rem = length es % AINT_SZ in
+            let add = rem = 0 => 0 | AINT_SZ-rem in
+            let msb = hd es in
+            let chunks = cluster AINT_SZ ((replicate add msb)@es) in
+            let mk l = {''(sscanf "%b" (implode l))::int} in
+            rev (map mk chunks)
+        in
+        emit_aint (cnv i)
+    in
+    let top_levels = map (\(uid,ct). emit ct) pgm_list then
+    let fwds =
+	map (\i. node2romline ('0<--ntype? G_INDIR <--left? ''i)) top_levels
+    then
+    let pgm = butfirstn (plen+1) (rev (deref rres)) then
+    let final = (i0:fwds)@pgm then
+    let ROM_info_cell =
+	    2**(get_hw_type_size "addr")*(length top_levels) + 
+	    (length (deref rres))
+    in
+    let size_cell = node2romline (''ROM_info_cell) then
+    (size_cell:final), (deref comb_cnt)
+;
+
+let mk_cephalopode_rom file expression_name draw_graph->F =
+    // Only draw graph in GUI mode.
+    let draw_graph = noX => F | draw_graph in
+    let fp = fopen file "w" then
+    (
+    let ceph_expr = compile expression_name then
+    (draw_graph => draw_cterms ceph_expr | ()) fseq
+    val (rom,comb_info) = mk_rom ceph_expr then
+    length rom >= ROM_SIZE =>
+	eprintf "Program of size %d does not fit in ROM\n" (length rom)
+    |
+    let info = (qsort (\p1.\p2. strcmp (fst p1) (fst p2)) comb_info) in
+    let final = info @ [("TOTAL", (itlist (\p.\r. snd p + r) comb_info 0))] in
+    let pr (comb,cnt) = sprintf "%6s: %d" comb cnt in
+    let info = list2str T "Combinator statistics:\n" "\n" "\n" pr final in
+    let pr fp s = fprintf fp "%s" s in
+    (fprintf stdout "-I- Writing out %d lines of ROM code to file %s\n\n%s"
+                    (length rom) file info) fseq
+    (list2fp fp T "" "\n" "\n" pr rom) fseq
+    (fclose fp)
+    ) gen_catch (\msg. (fclose fp) fseq error msg)
+;
+

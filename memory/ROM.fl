@@ -1,0 +1,46 @@
+cload (DIR^"types.fl");
+
+MEMORY "ROM" [(ROM_LINES, "rom_addr")] "node";
+
+ENUM "rom_fsm" ["IDLE", "DO_READ", "DONE_READ"];
+
+let behavioral_ROM name =
+    rom_addr_input	addr.
+    node_output		out.
+    //
+    bit_internal    rdy.
+    internal	    local_out.
+    let  rom =  mk_internal (sprintf "__ROM__%s__" name) in
+    add_internal {rom::ROM} (
+    CELL "behavioral_ROM" [
+	is_stable ROM_LATENCY addr rdy,
+	Read_ROM rom addr local_out,
+	out <- (IF rdy THEN local_out ELSE 'X),
+	rom <: rom
+]);
+
+BUNDLE "B_ROM_read"
+        [("clkenb", "bit"), ("req", "bit"), ("addr", "rom_addr")]
+        [("ack", "bit"), ("data", "node")]
+;
+
+
+let ROM =
+    bit_input		clk.
+    bit_input		reset.
+    B_ROM_read_input	S_ROM_read.
+    bit_internal	done.
+    rom_fsm_internal	rom_state.
+    CELL "ROM" [
+	Moore_FSM "rom_fsm" clk rom_state (reset, IDLE) [
+	    IDLE	--- (S_ROM_read-->req)  --- DO_READ,
+	    DO_READ	--- done		--- DONE_READ,
+	    DONE_READ	--- '1			--- IDLE
+	],
+	behavioral_ROM "flash" (S_ROM_read-->addr) (S_ROM_read-->data),
+        ackpulse_delay (ROM_LATENCY/2) clk reset
+                        (S_ROM_read-->req) (S_ROM_read-->ack)
+];
+
+create_default_version ROM;
+

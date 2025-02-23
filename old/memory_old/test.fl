@@ -1,0 +1,297 @@
+cload (DIR^"memory.bfl");
+
+// Obsolete version.... needs to be upgraded
+
+//#define SIMULATION
+#ifdef SIMULATION
+
+let inp_ackpulse_ifc =
+    bit_input	clk.
+    bit_input	reset.
+    bit_input	inp_req.
+    input	inp.
+    bit_input	ack.
+    bit_output  out_req.
+    output	out.
+    //
+    bit_internal    ifc_state new_ifc_state.
+    bit_internal    start.
+    internal        prev_inp.
+    CELL "inp_ackpulse_ifc" [
+      CASE new_ifc_state [
+	    (reset, '0),
+	    ((ifc_state '=' '0) '&' inp_req,	 '1),
+	    ((ifc_state '=' '0) '&' '~' inp_req, '0),
+	    ((ifc_state '=' '1) '&' ack,	 '0),
+	    ((ifc_state '=' '1) '&' '~' ack,	 '1)
+	    ] 'X,
+      re_ff clk new_ifc_state ifc_state,
+      start <- inp_req '&' ('~' ifc_state),
+      out_req <- start '|' ifc_state,
+      re_ff_en clk ('~' ifc_state) inp prev_inp,
+      out <- (IF start THEN inp ELSE prev_inp)
+];
+
+let test_harness =
+    bit_input	    clk.
+    bit_input	    reset.
+    // ----- Initialization -----
+    bit_input	    mem_init_req.
+    bit_output	    mem_init_ack.
+    addr_output	    free_list_start.
+    // ----- Ordinary -----
+    // Read
+    bit_input	    read_req.
+    addr_input	    read_addr.
+    node_output	    read_dout.
+    bit_output	    read_ack.
+    // Write
+    bit_input	    write_req.
+    addr_input	    write_addr.
+    node_input	    din.
+    bit_output	    write_ack.
+    // ----- Snapshot -----
+    // Snap prepare
+    bit_input	    snap_prepare_req.
+    bit_output	    snap_prepare_ack.
+    // Snap take
+    bit_input	    snap_take_req.
+    bit_output	    snap_take_ack.
+    // Snap read 
+    bit_input	    snap_read_req.
+    addr_input	    snap_read_addr.
+    node_output	    snap_dout.
+    bit_output	    snap_read_ack.
+    // ----- Marking -----
+    // mark_get
+    bit_input	    mark_get_req.
+    addr_input	    mark_get_addr.
+    bit_output	    mark_get_value.
+    bit_output	    mark_get_ack.
+    // mark_set
+    bit_input	    mark_set_req.
+    addr_input	    mark_set_addr.
+    bit_input	    mark_set_value.
+    bit_output	    mark_set_ack.
+    // ----- Status -----
+    bit_output	    snap_ready.
+    //
+    bit_internal	    mid_mem_init_req.
+    bit_internal	    mid_read_req.
+    addr_internal	    mid_read_addr.
+    bit_internal	    mid_write_req.
+    addr_internal	    mid_write_addr.
+    node_internal	    mid_din.
+    bit_internal	    mid_snap_prepare_req.
+    bit_internal	    mid_snap_take_req.
+    bit_internal	    mid_snap_read_req.
+    addr_internal	    mid_snap_read_addr.
+    bit_internal	    mid_mark_get_req.
+    addr_internal	    mid_mark_get_addr.
+    bit_internal	    mid_mark_set_req.
+    addr_internal	    mid_mark_set_addr.
+    bit_internal	    mid_mark_set_value.
+    bit_internal	    dummy1 dummy2 dummy3.
+    CELL "test_harness" [
+	  memory clk reset
+		mid_mem_init_req mem_init_ack free_list_start
+		mid_read_req read_ack mid_read_addr read_dout 
+		mid_write_req write_ack mid_write_addr mid_din
+		mid_snap_prepare_req snap_prepare_ack
+		mid_snap_take_req snap_take_ack
+		mid_snap_read_req snap_read_ack mid_snap_read_addr snap_dout
+		mid_mark_get_req mark_get_ack mid_mark_get_addr mark_get_value
+		mid_mark_set_req mark_set_ack mid_mark_set_addr
+		mid_mark_set_value snap_ready
+	// Protocol converters
+	, inp_ackpulse_ifc clk reset
+		read_req read_addr read_ack mid_read_req mid_read_addr
+	, inp_ackpulse_ifc clk reset
+		write_req (write_addr,din) write_ack mid_write_req
+			  (mid_write_addr, mid_din)
+	, inp_ackpulse_ifc clk reset
+		snap_prepare_req '0 snap_prepare_ack mid_snap_prepare_req dummy1
+	, inp_ackpulse_ifc clk reset
+		snap_take_req '0 snap_take_ack mid_snap_take_req dummy2
+	, inp_ackpulse_ifc clk reset
+		mem_init_req '0 mem_init_ack mid_mem_init_req dummy3
+	, inp_ackpulse_ifc clk reset
+		snap_read_req snap_read_addr snap_read_ack
+		mid_snap_read_req mid_snap_read_addr
+	, inp_ackpulse_ifc clk reset
+		mark_get_req mark_get_addr mark_get_ack
+		mid_mark_get_req mid_mark_get_addr
+	, inp_ackpulse_ifc clk reset
+		mark_set_req (mark_set_addr,mark_set_value) mark_set_ack
+		mid_mark_set_req (mid_mark_set_addr,mid_mark_set_value)
+]; 
+
+
+
+let p = flfun2pexlif test_harness;
+
+//system "rm -rf DB_q";
+//IDV p "DB_q" [];
+
+
+wtime (p fseq "p");
+let ckt = pexlif2fsm p;
+wtime (ckt fseq "ckt");
+let vis = STE_debug ckt;
+wtime (vis fseq "vis");
+
+
+let N = 1000;
+
+let rom_ant = mk_ROM_ant ckt "flash" "../fl_compiler/_e0.rom";
+wtime (rom_ant fseq "rom_ant");
+
+let T0 = 500;
+let T1  = T0+340/2;
+let T2  = T0+370/2;
+let T3  = T0+400/2;
+let T4  = T0+430/2;
+let T5  = T0+450/2;
+let T6  = T0+600/2;
+let T7  = T0+630/2;
+let T8  = T0+690/2;
+let T9  = T0+750/2;
+let T10 = T0+800/2;
+let T11 = T0+850/2;
+let T12 = T0+900/2;
+let T13 = T0+950/2;
+let T14 = T0+1000/2;
+
+
+let ant =
+    "clk" is_clock N
+  and
+    "reset" is 1 for 3 cycles otherwise 0 until N cycles
+  and
+    "mem_init_req" is 1 in_cycle 3 otherwise 0 until N cycles
+  and
+    // --- Reads ---
+    "read_req" is 1 in_cycle T1 followed_by
+		  1 in_cycle T2 followed_by
+		  1 in_cycle T4 followed_by
+		  1 in_cycle T8 followed_by
+		  1 in_cycle T11
+	otherwise 0 until N cycles
+  and
+    "read_addr[6:0]" is 0x7 in_cycle T1 followed_by
+			0x2 in_cycle T2 followed_by
+			0x2 in_cycle T4 followed_by
+			0x2 in_cycle T8 followed_by
+			0x2 in_cycle T11
+	otherwise X until N cycles
+  and
+    // --- Writes ---
+    "write_req" is 1 in_cycle T3 followed_by
+		   1 in_cycle T7 followed_by
+		   1 in_cycle T10
+	otherwise 0 until N cycles
+  and
+    "write_addr[6:0]" is 0x2 in_cycle T3 followed_by
+			 0x2 in_cycle T7 followed_by
+			 0x2 in_cycle T10
+	otherwise X until N cycles
+  and
+    "din[23:0]" is 0xabba in_cycle T3 followed_by
+		   0xbaba in_cycle T7 followed_by
+		   0xcdcd in_cycle T10
+	otherwise X until N cycles
+  and
+    // --- Snap operations ---
+    "snap_prepare_req" is 1 in_cycle T5 otherwise 0 until N cycles
+  and
+    //
+    "snap_take_req" is 1 in_cycle T6 otherwise 0 until N cycles
+  and
+    //
+    "snap_read_req" is 1 in_cycle T9 followed_by
+		       1 in_cycle T11
+	otherwise 0 until N cycles
+  and
+    "snap_read_addr[6:0]" is 0x2 in_cycle T9 followed_by
+			     0x2 in_cycle T11
+	otherwise X until N cycles
+    //
+  and
+    "mark_get_req" is 1 in_cycle T12 followed_by
+		      1 in_cycle T14
+	 otherwise 0 until N cycles
+  and
+    "mark_get_addr[6:0]" is 0x7 in_cycle T12 followed_by
+			    0x7 in_cycle T14
+	otherwise X until N cycles
+  and
+    "mark_set_req" is 1 in_cycle T13 otherwise 0 until N cycles
+  and
+    "mark_set_addr[6:0]" is 0x7 in_cycle T13
+	otherwise X until N cycles
+  and
+    "mark_set_value" is 0x1 in_cycle T13 
+	otherwise X until N cycles
+  and rom_ant
+;
+STE "-e" vis [] ant [] [];
+
+
+
+let ram_sample size =
+    let vecs = vectors ckt in
+    let nd_sz = hw_size {'a::node}-1 in
+    let pat = sprintf "/ram\[%d:0][%d:0]" (2*RAM_LINES-1) nd_sz in
+    let cands = filter (str_is_suffix pat) vecs in
+    length cands != 1 =>
+	eprintf "Cannot find memory matchin name %s\n" pat
+    |
+    let parts = butlast (str_split (hd cands) "/") in
+    list2str T "" "/" (sprintf "/ram[%d:0][%d:0]" (size-1) nd_sz) id parts
+;
+
+
+let tab_1 = draw_fanin vis (0) 100 ["mem_init_ack","free_list_start[6:0]","read_dout[23:0]","read_ack","write_ack","snap_prepare_ack","snap_take_ack","snap_dout[23:0]","snap_read_ack","mark_get_value","mark_get_ack","mark_set_ack","snap_ready"];
+tab_1;
+let tab_2 = draw_inside vis 1 ["mem_init_ack","free_list_start[6:0]","read_dout[23:0]","read_ack","write_ack","snap_prepare_ack","snap_take_ack","snap_dout[23:0]","snap_read_ack","mark_get_value","mark_get_ack","mark_set_ack","snap_ready"];
+tab_2;
+
+//
+add_waveform vis ["clk"];
+add_waveform vis ["reset"];
+add_waveform vis ["mem_init_req"];
+add_waveform vis ["mem_init_ack"];
+add_waveform vis ["free_list_start[6:0]"];
+
+draw_set_minmax vis 980 2000;
+
+
+add_waveform vis ["read_req"];
+add_waveform vis ["read_addr[6:0]"];
+add_waveform vis ["read_dout[23:0]"];
+add_waveform vis ["read_ack"];
+//
+add_waveform vis ["write_req"];
+add_waveform vis ["write_addr[6:0]"];
+add_waveform vis ["din[23:0]"];
+add_waveform vis ["write_ack"];
+//
+add_waveform vis ["snap_prepare_req"];
+add_waveform vis ["snap_prepare_ack"];
+add_waveform vis ["snap_take_req"];
+add_waveform vis ["snap_ready"];
+//
+add_waveform vis ["snap_read_req"];
+add_waveform vis ["snap_read_addr[6:0]"];
+add_waveform vis ["snap_read_ack"];
+add_waveform vis ["snap_dout[23:0]"];
+//
+add_waveform vis ["mark_get_req"];
+add_waveform vis ["mark_get_ack"];
+add_waveform vis ["mark_get_value"];
+add_waveform vis ["mark_set_req"];
+add_waveform vis ["mark_set_ack"];
+
+//add_waveform vis [(ram_sample 40)];
+
+#endif

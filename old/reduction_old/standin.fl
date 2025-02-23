@@ -1,0 +1,25 @@
+cload (DIR^"../types.fl");
+
+// stand-in with correct type but no logic
+let reduction_engine = 
+    // common
+    bit_input clk.
+    bit_input reset.
+    bit_input req.
+    bit_output ack.
+    graphptr_input i'gp_in.
+    graphptr_output o'gp_out.
+    bit_output a'mem_read'req.
+    bit_input a'mem_read'ack.
+    addr_output a'mem_read'i'p.
+    node_input a'mem_read'o'dout.
+    bit_output a'mem_write'req.
+    bit_input a'mem_write'ack.
+    addr_output a'mem_write'i'p.
+    node_output a'mem_write'i'din.
+    bit_output a'mem_alloc'req.
+    bit_input a'mem_alloc'ack.
+    addr_input a'mem_alloc'o'p.
+    bit_input a'pause'o'p.
+    CELL "reduction_engine" [
+    ];

@@ -1,0 +1,12 @@
+let vis = get_current_vis ();
+add_waveform vis ["S_uRAM_read'req"];
+add_waveform vis ["S_uRAM_read'addr[7:0]"];
+add_waveform vis ["S_uRAM_read'data[7:0]"];
+add_waveform vis ["S_uRAM_read'ack"];
+add_waveform vis ["S_uRAM_write'req"];
+add_waveform vis ["S_uRAM_write'addr[7:0]"];
+add_waveform vis ["S_uRAM_write'data[7:0]"];
+add_waveform vis ["S_uRAM_write'ack"];
+add_waveform vis ["S_mem_alloc'req"];
+add_waveform vis ["S_mem_alloc'addr[7:0]"];
+add_waveform vis ["S_mem_alloc'ack"];

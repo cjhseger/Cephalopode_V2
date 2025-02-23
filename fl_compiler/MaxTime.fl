@@ -1,0 +1,7 @@
+// Compute the maximum time an object in location (x1,y1,z1) and
+// with velocity vector (vx,vy,vz) can safely continue before it gets
+// too close to one of the points in a obstacle list.
+// Too close simply means it gets closer than a safe separation distance S.
+
+
+let 

@@ -1,0 +1,11 @@
+load "idv.fl";
+
+let load_files = map (\f.DIR^f)
+                     ["types.fl", "memory.bfl", "cRAM.bfl", "RAM.bfl"]
+;
+
+
+mk_interconnect_fub "memory_unit" load_files T ["memory", "cRAM", "RAM"] T;
+
+quit;
+

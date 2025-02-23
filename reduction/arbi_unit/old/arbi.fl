@@ -1,0 +1,158 @@
+cload (DIR^"../../types.fl");
+cload (DIR^"../reduction_types.fl");
+
+bifrost_load "arbi2int.bfst" T;
+bifrost_load "int2arbi.bfst" T;
+bifrost_load "arbi_trim.bfst" T;
+bifrost_load "arbi_unit.bfst" T;
+
+cload (DIR^"arb_rf.fl");
+cload (DIR^"arbi_add_sub.bfst.fl");
+
+
+let arbi =
+    bit_input	clk reset.
+    //
+    bit_output a'mem_read'req.
+    bit_input a'mem_read'ack.
+    addr_output a'mem_read'i'p.
+    node_input a'mem_read'o'dout.
+    //
+    bit_output a'mem_write'req.
+    bit_input a'mem_write'ack.
+    addr_output a'mem_write'i'p.
+    node_output a'mem_write'i'din.
+    //
+    bit_output a'mem_alloc'req.
+    bit_input a'mem_alloc'ack.
+    addr_input a'mem_alloc'o'p.
+    //
+    // Internal
+    //
+    bit_internal	    a'arb_rf_new'req.
+    bit_internal	    a'arb_rf_new'ack.
+    index_internal	    a'arb_rf_new'o'idx.
+    // arb_rf_length
+    bit_internal	    a'arb_rf_length'req.
+    bit_internal	    a'arb_rf_length'ack.
+    index_internal	    a'arb_rf_length'i'idx.
+    alen_internal	    a'arb_rf_length'o'len.
+    // arb_rf_alloc
+    bit_internal	    a'arb_rf_alloc'req.
+    bit_internal	    a'arb_rf_alloc'ack.
+    index_internal	    a'arb_rf_alloc'i'idx.
+    alen_internal	    a'arb_rf_alloc'i'cnt.
+    // arb_rf_get Port 0
+    bit_internal	    a'arb_rf_get0'req.
+    bit_internal	    a'arb_rf_get0'ack.
+    index_internal	    a'arb_rf_get0'i'idx.
+    alen_internal	    a'arb_rf_get0'i'i.
+    Aint_internal	    a'arb_rf_get0'o'v.
+    // arb_rf_get Port 1
+    bit_internal	    a'arb_rf_get1'req.
+    bit_internal	    a'arb_rf_get1'ack.
+    index_internal	    a'arb_rf_get1'i'idx.
+    alen_internal	    a'arb_rf_get1'i'i.
+    Aint_internal	    a'arb_rf_get1'o'v.
+    // arb_rf_set
+    bit_internal	    a'arb_rf_set'req.
+    bit_internal	    a'arb_rf_set'ack.
+    index_internal	    a'arb_rf_set'i'idx.
+    alen_internal	    a'arb_rf_set'i'i.
+    Aint_internal	    a'arb_rf_set'i'v.
+    // arb_rf_pop
+    bit_internal	    a'arb_rf_pop'req.
+    bit_internal	    a'arb_rf_pop'ack.
+    index_internal	    a'arb_rf_pop'i'idx.
+    // arb_rf_push
+    bit_internal	    a'arb_rf_push'req.
+    bit_internal	    a'arb_rf_push'ack.
+    index_internal	    a'arb_rf_push'i'idx.
+    Aint_internal	    a'arb_rf_push'i'i.
+    // arb_rf_free
+    bit_internal	    a'arb_rf_free'req.
+    bit_internal	    a'arb_rf_free'ack.
+    //
+    bit_internal	    a'arbi2int'req.
+    bit_internal	    a'arbi2int'ack.
+    index_internal	    a'arbi2int'i'idx.
+    node_internal	    a'arbi2int'o'res.
+    //
+    bit_internal	    a'int2arbi'req.
+    bit_internal	    a'int2arbi'ack.
+    addr_internal	    a'int2arbi'i'arg.
+    index_internal	    a'int2arbi'o'idx.
+    //
+    bit_internal	    a'arbi_trim'req.
+    bit_internal	    a'arbi_trim'ack.
+    index_internal	    a'arbi_trim'i'idx.
+    //
+    CELL "arbi" [
+	  arb_rf clk reset
+		a'arb_rf_new'req a'arb_rf_new'ack a'arb_rf_new'o'idx
+		a'arb_rf_length'req a'arb_rf_length'ack
+		    a'arb_rf_length'i'idx a'arb_rf_length'o'len
+		a'arb_rf_alloc'req a'arb_rf_alloc'ack
+		    a'arb_rf_alloc'i'idx a'arb_rf_alloc'i'cnt
+		a'arb_rf_get0'req a'arb_rf_get0'ack
+		    a'arb_rf_get0'i'idx a'arb_rf_get0'i'i a'arb_rf_get0'o'v
+		a'arb_rf_get1'req a'arb_rf_get1'ack
+		    a'arb_rf_get1'i'idx a'arb_rf_get1'i'i a'arb_rf_get1'o'v
+		a'arb_rf_set'req a'arb_rf_set'ack
+		    a'arb_rf_set'i'idx a'arb_rf_set'i'i a'arb_rf_set'i'v
+		a'arb_rf_pop'req a'arb_rf_pop'ack a'arb_rf_pop'i'idx
+		a'arb_rf_push'req a'arb_rf_push'ack
+		    a'arb_rf_push'i'idx a'arb_rf_push'i'i
+		a'arb_rf_free'req a'arb_rf_free'ack
+	, arbi2int clk reset a'arbi2int'req a'arbi2int'ack
+		    a'arbi2int'i'idx a'arbi2int'o'res
+		    a'mem_write'req a'mem_write'ack
+			a'mem_write'i'p a'mem_write'i'din
+		    a'mem_alloc'req a'mem_alloc'ack a'mem_alloc'o'p
+		    a'arb_rf_length'req a'arb_rf_length'ack
+			a'arb_rf_length'i'idx a'arb_rf_length'o'len
+		    a'arb_rf_get0'req a'arb_rf_get0'ack
+			a'arb_rf_get0'i'idx a'arb_rf_get0'i'i a'arb_rf_get0'o'v
+		    a'arb_rf_get1'req a'arb_rf_get1'ack
+			a'arb_rf_get1'i'idx a'arb_rf_get1'i'i a'arb_rf_get1'o'v
+	//
+	, int2arbi clk reset
+		a'int2arbi'req a'int2arbi'ack a'int2arbi'i'arg a'int2arbi'o'idx
+		a'mem_read'req a'mem_read'ack a'mem_read'i'p a'mem_read'o'dout
+		a'arb_rf_new'req a'arb_rf_new'ack a'arb_rf_new'o'idx
+		a'arb_rf_push'req a'arb_rf_push'ack
+		    a'arb_rf_push'i'idx a'arb_rf_push'i'i
+	//
+	, arbi_trim clk reset
+		a'arbi_trim'req a'arbi_trim'ack a'arbi_trim'i'idx
+		a'arb_rf_length'req a'arb_rf_length'ack
+		    a'arb_rf_length'i'idx a'arb_rf_length'o'len
+		a'arb_rf_get0'req a'arb_rf_get0'ack
+		    a'arb_rf_get0'i'idx a'arb_rf_get0'i'i a'arb_rf_get0'o'v
+		a'arb_rf_get1'req a'arb_rf_get1'ack
+		    a'arb_rf_get1'i'idx a'arb_rf_get1'i'i a'arb_rf_get1'o'v
+		a'arb_rf_pop'req a'arb_rf_pop'ack a'arb_rf_pop'i'idx
+	//
+	, arbi_add_sub clk reset
+	    a'arbi_add'req a'arbi_add'ack
+		a'arbi_add'i'subtract
+		a'arbi_add'i'arg1 a'arbi_add'i'arg2 a'arbi_add'o'res
+		a'arb_rf_length'req a'arb_rf_length'ack
+		    a'arb_rf_length'i'idx a'arb_rf_length'o'len
+		a'arb_rf_new'req a'arb_rf_new'ack a'arb_rf_new'o'idx
+		a'arb_rf_alloc'req a'arb_rf_alloc'ack
+		    a'arb_rf_alloc'i'idx a'arb_rf_alloc'i'cnt
+		a'arb_rf_get0'req a'arb_rf_get0'ack
+		    a'arb_rf_get0'i'idx a'arb_rf_get0'i'i a'arb_rf_get0'o'v
+		a'arb_rf_get1'req a'arb_rf_get1'ack
+		    a'arb_rf_get1'i'idx a'arb_rf_get1'i'i a'arb_rf_get1'o'v
+		a'arb_rf_set'req a'arb_rf_set'ack
+		    a'arb_rf_set'i'idx a'arb_rf_set'i'i a'arb_rf_set'i'v
+		a'arb_rf_pop'req a'arb_rf_pop'ack a'arb_rf_pop'i'idx
+		a'arb_rf_free'req a'arb_rf_free'ack
+		a'int2arbi'req a'int2arbi'ack a'int2arbi'i'arg a'int2arbi'o'idx
+		a'arbi2int'req a'arbi2int'ack a'arbi2int'i'idx a'arbi2int'o'res
+		a'arbi_trim'req a'arbi_trim'ack a'arbi_trim'i'idx
+];
+
+let p = flfun2pexlif arbi;

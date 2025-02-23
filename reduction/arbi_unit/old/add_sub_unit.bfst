@@ -1,0 +1,75 @@
+#include "primitives.binc"
+
+// Actions
+action mem_read:MemRead provided by external via proto_mem;
+action mem_write:MemWrite provided by external via proto_mem;
+action mem_alloc:MemAlloc provided by external via proto_mem;
+
+action arbi_add_sub:ArbiAddSub provided by external via std_proto;
+
+// Macros to access HFL functions
+define ZX    = (fl "\\z. ZX z");
+define SX    = (fl "\\z. SX z");
+define MSB   = (fl "\\z. hd (tobits z)");
+define MSD   = (fl "\\z. MSD(z) ");
+define LSD   = (fl "\\z. LSD(z)");
+define STRIP = (fl "\\z. STRIP(z)");
+define ONE   = (fl "{'1::Aint}");
+define ZERO  = (fl "{'0::Aint}");
+
+
+module add_sub_unit;
+protocol std_proto;
+
+function main : subtract:bit -> arg1:Addr -> arg2:Addr -> res:Node
+{
+    var Node	    n1, n2, t2, t3;
+    var Addr	    l2, l3;
+    var Int	    V1, V2, R, cin;
+    var bit	    msb1, msb2, msbr;
+    var bit	    oflw;
+
+    n1 = do mem_read arg1;
+    n2 = do mem_read arg2;
+    if( n1-->ntype == G_INT & n2-->ntype == G_INT ) {
+	V1 = n1-->int;
+	V2 = n2-->int;
+	if ( subtract ) { V2 = ~V2; }
+	cin = (if (subtract ) then ONE else ZERO);
+	R = V1 + V2 + cin;
+	msb1 = MSB(V1);
+	msb2 = MSB(V2);
+	msbr = MSB(R);
+	oflw = (if ( subtract ) then
+		    (msb1 & ~msb2 & ~msbr | ~msb1 & msb2 & msbr)
+		else
+		    (msb1 & msb2 & ~msbr | ~msb1 & ~msb2 & msbr));
+	if( ~oflw ) {
+	    // Fits in G_INT
+	    res = 0;
+	    res-->ntype = G_INT;
+	    res-->int = R;
+	    return;
+	} else {
+	    // Must split into G_AINT list
+	    l2 = do mem_alloc;
+	    l3 = do mem_alloc;
+	    t2 = 0;
+	    t2-->ntype = G_AINT;
+	    t2-->left  = l3;
+	    t2-->aint   = MSD(R);
+	    do mem_write l2 t2;
+	    t3 = 0;
+	    t3-->ntype = G_AINT;
+	    t3-->left  = 0;
+	    t3-->aint   = SX(~msbr);
+	    do mem_write l3 t3;
+	    res-->ntype = G_AINT;
+	    res-->left  = l2;
+	    res-->aint   = LSD(R);
+	    return;
+	}
+    }
+    res = do arbi_add_sub 0 arg1 arg2;
+    return;
+}

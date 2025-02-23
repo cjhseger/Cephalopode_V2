@@ -1,0 +1,223 @@
+// ==============================================================
+// *			    Types				*
+// ==============================================================
+type NodeType  => "g_type";
+define G_FREE  = fl "G_FREE"  :: NodeType;
+define G_APP   = fl "G_APP"   :: NodeType;
+define G_COMB  = fl "G_COMB"  :: NodeType;
+define G_PRIM  = fl "G_PRIM"  :: NodeType;
+define G_CONS  = fl "G_CONS"  :: NodeType;
+define G_NIL   = fl "G_NIL"   :: NodeType;
+define G_INT   = fl "G_INT"   :: NodeType;
+define G_AINT  = fl "G_AINT"  :: NodeType;
+define G_INDIR = fl "G_INDIR" :: NodeType;
+
+type Primitive  => "primitive";
+define P_PLUS      = fl "P_PLUS" :: Primitive;
+define P_MINUS     = fl "P_MINUS" :: Primitive;
+define P_TIMES     = fl "P_TIMES" :: Primitive;
+define P_DIV       = fl "P_DIV" :: Primitive;
+define P_MOD       = fl "P_MOD" :: Primitive;
+define P_EQ        = fl "P_EQ" :: Primitive;
+define P_NEQ       = fl "P_NEQ" :: Primitive;
+define P_GT        = fl "P_GT" :: Primitive;
+define P_GEQ       = fl "P_GEQ" :: Primitive;
+define P_AND       = fl "P_AND" :: Primitive;
+define P_OR        = fl "P_OR" :: Primitive;
+define P_NOT       = fl "P_NOT" :: Primitive;
+define P_COND      = fl "P_COND" :: Primitive;
+define P_FST       = fl "P_FST" :: Primitive;
+define P_SND       = fl "P_SND" :: Primitive;
+define P_TUPLE     = fl "P_TUPLE" :: Primitive;
+define P_HD        = fl "P_HD" :: Primitive;
+define P_TL        = fl "P_TL" :: Primitive;
+define P_IS_NIL    = fl "P_IS_NIL" :: Primitive;
+define P_CONS      = fl "P_CONS" :: Primitive;
+define P_NIL       = fl "P_NIL" :: Primitive;
+define P_PROC_INIT = fl "P_PROC_INIT" :: Primitive;
+
+type Combinator => "combinator";
+define C_S = fl "C_S" :: Combinator;
+define C_K = fl "C_K" :: Combinator;
+define C_I = fl "C_I" :: Combinator;
+define C_Y = fl "C_Y" :: Combinator;
+define C_SPRIME = fl "C_SPRIME" :: Combinator;
+define C_SPRIMEPRIME = fl "C_SPRIMEPRIME" :: Combinator;
+define C_C = fl "C_C" :: Combinator;
+define C_CPRIME = fl "C_CPRIME" :: Combinator;
+define C_B = fl "C_B" :: Combinator;
+define C_BSTAR = fl "C_BSTAR" :: Combinator;
+define C_BPRIME = fl "C_BPRIME" :: Combinator;
+define C_S1 = fl "C_S1" :: Combinator;
+define C_S2 = fl "C_S2" :: Combinator;
+define C_L  = fl "C_L" :: Combinator;
+define C_Cn = fl "C_Cn" :: Combinator;
+
+type Addr => "addr";
+define NULL	  = fl "addr_null" :: Addr;
+define GRAPH_ROOT = fl "graph_root" :: Addr;
+define HEAP_MIN	  = fl "heap_min" :: Addr;
+define HEAP_MAX   = fl "heap_max" :: Addr;
+define Threshold  = fl "threshold" :: Addr;
+define GCS_MAX = fl "gcs_max" :: Addr;
+
+type eAddr => "eaddr";
+
+type Eint       => "Eint";
+type Int        => "Int";
+type Aint       => "Aint";
+type HAint	=> "HAint";
+
+type Cidx	=> "cidx";
+
+type GraphPtr => "graphptr";
+fields GraphPtr [
+    p:Addr,         // next node to look at
+    up:Addr         // that node's parent in spine (NULL for graph root)
+];
+
+type Node => "node";
+fields Node [
+    ntype:NodeType,
+    left:Addr,
+    right:Addr,
+    comb:Combinator,
+    comb_idx:Cidx,
+    prim:Primitive,
+    int:Int,
+    aint:Aint
+];
+
+define make_indirection = fl "make_indirection" :: Addr -> Node;
+
+type Mem_op => "mem_op";
+define MEM_INIT = fl "MEM_INIT" :: Mem_op;
+define MEM_READ = fl "MEM_READ" :: Mem_op;
+define MEM_WRITE = fl "MEM_WRITE" :: Mem_op;
+define SNAP_MEM_READ = fl "SNAP_MEM_READ" :: Mem_op;
+define SNAP_PREPARE = fl "SNAP_PREPARE" :: Mem_op;
+define SNAP_TAKE = fl "SNAP_TAKE" :: Mem_op;
+
+type Mark_op => "mark_op";
+define MARK_INIT = fl "MARK_INIT" :: Mark_op;
+define MARK_GET = fl "MARK_GET" :: Mark_op;
+define MARK_SET = fl "MARK_SET" :: Mark_op;
+
+
+// ==============================================================
+// *			    Protocols				*
+// ==============================================================
+define std_proto	    = {{ data = "ackpulse", power = "clockgating" }};
+define comb_proto	    = {{ data = "immediate" }};
+define big_proto	    = {{ data = "ackpulse", power = "clockgating" }};
+define get_top_addr_proto   = {{ data = "immediate" }};
+define set_top_addr_proto   = {{ data = "ackpulse", power = "clockgating" }};
+define mem_get_heap_proto   = {{ data = "ackpulse", power = "clockgating" }};
+define mem_proto	    = {{ data = "ackpulse", power = "clockgating" }};
+define mark_proto	    = {{ data = "ackpulse", power = "clockgating" }};
+define freelist_proto	    = {{ data = "ackpulse", power = "clockgating" }};
+define freeze_proto	    = {{ data = "ackpulse", power = "clockgating" }};
+define set_snap_proto	    = {{ data = "ackpulse", power = "clockgating" }};
+define snap_ready_proto	    = {{ data = "immediate" }};
+define alloc_proto	    = {{ data = "ackpulse", power = "clockgating" }};
+define set_snapshot_top_addr_proto = {{ data = "ackpulse", power = "clockgating" }};
+
+// ==============================================================
+// *		Action types and macros				*
+// ==============================================================
+
+// ------------------ Memory unit declarations -----------------
+state MEM;          // contents of memory (non-snapshot)
+actiontype MemUnit = op:Mem_op -> addr:Addr -> din:Node -> dout:Node
+                            reading [MEM] writing [MEM];
+define do_mem_init = do mem_unit MEM_INIT 0 0;
+define do_mem_read addr = do mem_unit MEM_READ addr 0;
+define do_mem_write addr din = do mem_unit MEM_WRITE addr din;
+define do_snap_read addr = do mem_unit SNAP_MEM_READ addr 0;
+define do_snap_prepare = do mem_unit SNAP_PREPARE 0 0;
+define do_snap_take = do mem_unit SNAP_TAKE 0 0;
+//
+// Usage: action mem_unit:MemUnit provided by external via mem_proto;
+//
+
+// ------------------ Up unit declarations -----------------
+state UPMEM;
+actiontype uRAMRead = addr:Addr -> data:Addr reading [UPMEM] writing [];
+actiontype uRAMWrite = addr:Addr -> data:Addr -> () reading [] writing [UPMEM];
+//
+// Usage:
+//  action uRAM_read:uRAMRead provided by external via std_proto;
+//  action uRAM_write:uRAMWrite provided by external via std_proto;
+
+// ------------------ Mark unit declarations -----------------
+state MARK;
+actiontype MarkUnit = op:Mark_op -> addr:Addr -> m_in:bit -> res:bit
+                            reading [MARK] writing [MARK];
+define do_mark_init = do mark_unit MARK_INIT 0 0;
+define do_mark_get addr = do mark_unit MARK_GET addr 0;
+define do_mark_set addr mark = do mark_unit MARK_SET addr mark;
+//
+// Usage: action mark_unit:MarkUnit provided by external via mark_proto;
+//
+
+// ------------------ Freelist ops declarations -----------------
+state FREELIST;     // contents and address of freelist
+actiontype FreelistCheckout = free:Addr reading [FREELIST] writing [];
+actiontype FreelistCheckin  = free:Addr -> () reading [] writing [FREELIST];
+
+actiontype FreeListEmpty = empty:bit reading [FREELIST] writing [];
+actiontype FreeListGetNext = free:Addr reading [FREELIST] writing [FREELIST];
+
+//
+// Usage:
+// action gc_freelist_checkout:FreelistCheckout provided by external via freelist_proto;
+// action gc_freelist_checkin:FreelistCheckin provided by external via freelist_proto;
+// action alloc_freelist_checkout:FreelistCheckout provided by external via freelist_proto;
+// action alloc_freelist_checkin:FreelistCheckin provided by external via freelist_proto;
+// action bool_freelist_checkout:FreelistCheckout provided by external via freelist_proto;
+// action bool_freelist_checkin:FreelistCheckin provided by external via freelist_proto;
+//
+
+// ------------------ Freeze graph ops declarations -----------------
+actiontype FreezeGraph = () reading [] writing [];
+actiontype UnfreezeGraph = () reading [] writing [];
+// Usage:
+// action freeze_graph:FreezeGraph provided by external via freeze_proto;
+// action unfreeze_graph:UnfreezeGraph provided by external via freeze_proto;
+
+// ------------------ Heap op declarations -----------------
+state HEAP;
+actiontype GET_TOP_ADDR = addr:Addr reading [HEAP] writing [];
+actiontype SET_TOP_ADDR = addr:Addr -> () reading [MEM] writing [HEAP];
+actiontype MEM_GET_HEAP = addr:Addr reading [HEAP] writing [HEAP];
+actiontype SNAPSHOT_TOP_ADDR_SET = () reading [HEAP] writing [HEAP];
+// Usage:
+// action get_top_addr:GET_TOP_ADDR provided by external via get_top_addr_proto;
+// action set_top_of_heap:SET_TOP_ADDR provided by external via set_top_addr_proto;
+// action mem_get_heap:MEM_GET_HEAP provided by external via mem_get_heap_proto;
+
+// ------------------ Snapshot op declarations -----------------
+state SNAP;         // contents of snap status
+actiontype SET_SNAP = valid:bit -> () reading [] writing [SNAP];
+actiontype SNAP_READY = valid:bit reading [SNAP] writing [];
+// Usage:
+// action set_snap_ready:SET_SNAP provided by external via set_snap_proto;
+// action snap_ready:SNAP_READY provided by external via snap_ready_proto;
+
+// ------------------ Allocator op declarations -----------------
+// ?????? Does MemAlloc really read MEM??? 
+//actiontype MemAlloc = addr:Addr reading [MEM,FREELIST] writing [MEM,FREELIST];
+actiontype MemAlloc = addr:Addr reading [FREELIST] writing [FREELIST];
+// Usage:
+// action mem_alloc:MemAlloc provided by external via alloc_proto;
+
+// ------------------ GC cnt declarations -----------------
+state GC_CNT;
+actiontype GcCntInc = () reading [GC_CNT] writing [GC_CNT];
+actiontype GcCntDec = () reading [GC_CNT] writing [GC_CNT];
+actiontype GcCntValue = addr:Addr reading [GC_CNT] writing [];
+
+
+
+
+

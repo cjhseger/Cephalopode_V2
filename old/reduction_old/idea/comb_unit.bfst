@@ -1,0 +1,83 @@
+#include "reduction.binc"
+
+define get_comb_arity = (fl "\\op. get_comb_arity op");
+define get_comb_allocs = (fl "\\op. get_comb_allocs op");
+
+define get_alloc1 =
+    (fl "\\op.\\p.\\a1.\\a2.\\a3.\\a4.\\n1.\\n2.\\n3.get_comb_alloc 1 op p a1 a2 a3 a4 n1 n2 n3")
+;
+define get_alloc2 =
+    (fl "\\op.\\p.\\a1.\\a2.\\a3.\\a4.\\n1.\\n2.\\n3.get_comb_alloc 2 op p a1 a2 a3 a4 n1 n2 n3")
+;
+define get_alloc3 =
+    (fl "\\op.\\p.\\a1.\\a2.\\a3.\\a4.\\n1.\\n2.\\n3.get_comb_alloc 3 op p a1 a2 a3 a4 n1 n2 n3")
+;
+
+define get_comb_redex =
+ (fl "\\op.\\p.\\a1.\\a2.\\a3.\\a4.\\n1.\\n2.\\n3. get_comb_redex op p a1 a2 a3 a4 n1 n2 n3")
+;
+
+define ONE	 = (fl "{'1::Aint}");
+define ZERO	 = (fl "{'0::Aint}");
+
+module comb_unit;
+protocol std_proto;
+
+function main : n:Node -> p:Addr -> up:Addr -> ()
+{
+    var Addr	    a1, a2, a3, a4;
+    var Addr	    na1, na2, na3;
+    var Arity	    arity, i_arg;
+    var AllocCount  alloc, i_alloc;
+    var Combinator  comb;
+ 
+
+    comb  = n-->comb;
+
+    // Unwind stack and gather arguments
+    arity = get_comb_arity comb;
+    if( arity >= 1 ) {
+	p = up; n = do mem_read p; up = n-->up;
+	a1 = n-->right;
+    }
+    --%<--
+    if( arity >= 2 ) {
+	p = up; n = do mem_read p; up = n-->up;
+	a2 = n-->right;
+    }
+    --%<--
+    if( arity >= 3 ) {
+	p = up; n = do mem_read p; up = n-->up;
+	a3 = n-->right;
+    }
+    --%<--
+    if( arity >= 4 ) {
+	p = up; n = do mem_read p; up = n-->up;
+	a4 = n-->right;
+    }
+    --%<--
+    
+    // Build new nodes
+    alloc = get_comb_allocs comb;
+    if( alloc >= 1 ) {
+	na1 = do mem_alloc;
+	do mem_write na1 (get_alloc1 comb p a1 a2 a3 a4 na1 na2 na3);
+    }
+    --%<--
+    if( alloc >= 2 ) {
+	na2 = do mem_alloc;
+	do mem_write na2 (get_alloc2 comb p a1 a2 a3 a4 na1 na2 na3);
+    }
+    --%<--
+    if( alloc >= 3 ) {
+	na3 = do mem_alloc;
+	do mem_write na3 (get_alloc3 comb p a1 a2 a3 a4 na1 na2 na3);
+    }
+    --%<--
+
+    // Finally create new node and overwrite redex with it
+    n = get_comb_redex comb p a1 a2 a3 a4 na1 na2 na3;
+    n-->up = up;
+    do mem_write p n;
+    return;
+}

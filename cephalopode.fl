@@ -1,0 +1,40 @@
+load "idv.fl";
+
+let load_files = map (\f. DIR^f) [
+				"types.fl",
+				"memory/mem_unit.bfl",
+				"memory/mark_unit.bfl",
+				"memory/heap_unit.bfl",
+				"memory/snap_unit.bfl",
+				"memory/uRAM.bfl",
+				"gc/gc_cnt.bfl",
+				"reduction/reduction_unit.bfl",
+				"freelist/freelist.bfl",
+				"gc/gc_unit.bfl",
+				"allocator/mem_alloc.bfl",
+				"manager/manager.bfl",
+				"boot/boot.bfl",
+				"status/record_status.bfl"
+];
+
+//foreach (\f. (load f) fseq ()) load_files;
+
+
+mk_interconnect_fub "cephalopode" load_files F [
+	  "mem_unit"
+	, "mark_unit"
+	, "uRAM"
+	, "heap_unit"
+	, "snap_unit"
+	, "reduction_unit"
+	, "gc_unit"
+	, "gc_cnt"
+	, "mem_alloc"
+	, "freelist"
+	, "manager"
+	, "boot"
+	, "record_status"
+] T;
+
+quit;
+

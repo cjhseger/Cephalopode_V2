@@ -1,0 +1,114 @@
+cload (DIR^"../types.fl");
+cload (DIR^"arb_ackpulse_fsm.fsm.fl");
+
+// Prioritizes #0, speaks ackpulse.
+let arb_mem_read =
+    bit_input clk.
+    bit_input reset.
+    //
+    bit_output mem_read_req.
+    bit_input mem_read_ack.
+    addr_output mem_read_addr.
+    node_input mem_read_dout.
+    //
+    bit_input mem_read_req0.
+    bit_output mem_read_ack0.
+    addr_input mem_read_addr0.
+    node_output mem_read_dout0.
+    //
+    bit_input mem_read_req1.
+    bit_output mem_read_ack1.
+    addr_input mem_read_addr1.
+    node_output mem_read_dout1.
+    //
+    bit_internal sel.
+    CELL "arb_mem_read" [
+        arb_ackpulse_fsm clk reset mem_read_ack mem_read_req0 mem_read_req1 mem_read_ack0 mem_read_ack1 mem_read_req sel,
+        mem_read_dout0 <- (IF sel THEN {'X :: node} ELSE mem_read_dout),
+        mem_read_dout1 <- (IF sel THEN mem_read_dout ELSE {'X :: node}),
+        mem_read_addr <- (IF sel THEN mem_read_addr1 ELSE mem_read_addr0)
+    ];
+
+// Prioritizes #0, speaks ackpulse.
+let arb_mem_write =
+    bit_input clk.
+    bit_input reset.
+    //
+    bit_output mem_write_req.
+    bit_input mem_write_ack.
+    addr_output mem_write_addr.
+    node_output mem_write_din.
+    //
+    bit_input mem_write_req0.
+    bit_output mem_write_ack0.
+    addr_input mem_write_addr0.
+    node_input mem_write_din0.
+    //
+    bit_input mem_write_req1.
+    bit_output mem_write_ack1.
+    addr_input mem_write_addr1.
+    node_input mem_write_din1.
+    //
+    bit_internal sel.
+    CELL "arb_mem_write" [
+        arb_ackpulse_fsm clk reset mem_write_ack mem_write_req0 mem_write_req1 mem_write_ack0 mem_write_ack1 mem_write_req sel,
+        mem_write_addr <- (IF sel THEN mem_write_addr1 ELSE mem_write_addr0),
+        mem_write_din <- (IF sel THEN mem_write_din1 ELSE mem_write_din0)
+    ];
+
+// Mutally-exclusive only, speaks ackpulse.
+let fork_mem_read =
+    bit_input clk.
+    bit_input reset.
+    //
+    bit_output mem_read_req.
+    bit_input mem_read_ack.
+    addr_output mem_read_addr.
+    node_input mem_read_dout.
+    //
+    bit_input mem_read_req0.
+    bit_output mem_read_ack0.
+    addr_input mem_read_addr0.
+    node_output mem_read_dout0.
+    //
+    bit_input mem_read_req1.
+    bit_output mem_read_ack1.
+    addr_input mem_read_addr1.
+    node_output mem_read_dout1.
+    //
+    CELL "fork_mem_read" [
+        mem_read_req <- mem_read_req0 '|' mem_read_req1,
+        CASE mem_read_addr [(mem_read_req0, mem_read_addr0), (mem_read_req1, mem_read_addr1)] 'X,
+        mem_read_ack0 <- mem_read_req0 '&' mem_read_ack,
+        mem_read_ack1 <- mem_read_req1 '&' mem_read_ack,
+        mem_read_dout0 <- mem_read_dout,
+        mem_read_dout1 <- mem_read_dout
+    ];
+
+// Mutually-exclusive only, speaks ackpulse.
+let fork_mem_write =
+    bit_input clk.
+    bit_input reset.
+    //
+    bit_output mem_write_req.
+    bit_input mem_write_ack.
+    addr_output mem_write_addr.
+    node_output mem_write_din.
+    //
+    bit_input mem_write_req0.
+    bit_output mem_write_ack0.
+    addr_input mem_write_addr0.
+    node_input mem_write_din0.
+    //
+    bit_input mem_write_req1.
+    bit_output mem_write_ack1.
+    addr_input mem_write_addr1.
+    node_input mem_write_din1.
+    //
+    CELL "fork_mem_write" [
+        mem_write_req <- mem_write_req0 '|' mem_write_req1,
+        CASE mem_write_addr [(mem_write_req0, mem_write_addr0), (mem_write_req1, mem_write_addr1)] 'X,
+        CASE mem_write_din [(mem_write_req0, mem_write_din0), (mem_write_req1, mem_write_din1)] 'X,
+        mem_write_ack0 <- mem_write_req0 '&' mem_write_ack,
+        mem_write_ack1 <- mem_write_req1 '&' mem_write_ack
+    ];

@@ -1,0 +1,314 @@
+cload (DIR^"../types.fl");
+
+
+// A fair arbiter for two agents.
+let arbiter2 =
+    bit_input	clk reset.
+    bit_input	req0.
+    bit_input	req1.
+    bit_output	ack0.
+    bit_output	ack1.
+    //
+    bit_internal    only0 only1 both last.
+    CELL "arbiter2" [
+	only0 <- req0 '&' '~' req1,
+	only1 <- req1 '&' '~' req0,
+	both  <- req0 '&' req1,
+	STATE clk last [
+	    reset --- '0,
+	    only0 --- '0,
+	    only1 --- '1,
+	    both  --- '~' last
+	],
+	ack0 <- only0 '|' both '&' last,
+	ack1 <- only1 '|' both '&' '~' last
+];
+
+
+
+begin_abstype;
+
+let selection =
+    bit_input	clk.
+    bit_input	reset.
+    bit_input	req.
+    bit_input	granted.
+    bit_input	prev_c.
+    bit_output	c.
+    //
+    bit_internal    set_to_0.
+    CELL "selection" [
+	set_to_0 <- reset '|' '~' req '|' granted,
+	STATE clk c [
+	    set_to_0 --- '0,
+	    req	     --- prev_c
+	]
+];
+
+let age_counter_1 =
+    bit_input	    clk.
+    bit_input	    reset.
+    bit_input	    req.
+    bit_input	    granted.
+    bit_list_output cnts.
+    //
+    bit_list_internal (length cnts) new_cnts.
+    CELL "age_counter_1" (
+	map2 (selection clk reset req granted) ('1:(butlast cnts)) cnts
+);
+
+let age_counter =
+    bit_input	    clk.
+    bit_input	    reset.
+    bit_list_input  reqs.
+    bit_list_input  grants.
+    bit_list_output ages.
+    CELL "age_counter" (
+	let N = length reqs in
+	let age_list = cluster N ages in
+	map3 (\r.\g.\al. age_counter_1 clk reset r g al) reqs grants age_list
+);
+
+let find_oldest_1 =
+    bit_list_input  prev_res.
+    bit_list_input  my_age.
+    bit_list_output new_res.
+    //
+    bit_internal    one_this_age.
+    CELL "find_oldest_1" [
+	    one_this_age <- OR_n my_age,
+	    new_res <- (IF one_this_age THEN my_age ELSE prev_res)
+];
+
+let sel1 =
+    bit_input	prev.
+    bit_input	cur.
+    bit_output	sel.
+    bit_output	next.
+    CELL "sel1" [
+	sel <- cur '&' '~' prev,
+	next <- prev '|' cur
+];
+
+
+let find_oldest_only_one =
+    bit_list_input  choices.
+    bit_list_output selected.
+    //
+    let N = length choices in
+    bit_list_internal N mids.
+    CELL "find_oldest_only_one" (
+	map4 sel1 ('0:(butlast mids)) choices selected mids
+);
+
+
+let find_oldest =
+    bit_list_input  init_reqs.
+    bit_list_input  ages.
+    bit_list_output selected.
+    //
+    let N = length selected in
+    bit_list_internal (N**2)	mids.
+    CELL "find_oldest" (
+	let levels = cluster N (interleave (cluster N ages)) in
+	let tmps = cluster N mids in
+	(map3 find_oldest_1 (init_reqs:(butlast tmps)) levels tmps)@
+	[find_oldest_only_one (last tmps) selected]
+);
+
+//STE_debug (pexlif2fsm (find_oldest ['r1,'r2] ['a3,'a2,'a1,'a0] ['s1, 's2]));
+
+// A fair arbiter for N agents.
+let arbiter =
+    bit_input	clk reset.
+    bit_list_input  reqs.
+    bit_list_output grants.
+    //
+    let N = length reqs in
+    bit_list_internal (N**2) ages.
+    CELL "arbitrate_N" [
+	age_counter clk reset reqs grants ages,
+	find_oldest reqs ages grants
+];
+
+end_abstype arbiter;
+
+//let vis = STE_debug (pexlif2fsm (arbiter 'clk 'reset ['req1,'req2,'req3] ['ack1, 'ack2, 'ack3]));
+//vis;
+//
+//draw_set_time vis 0;
+//add_waveform vis ["clk"];
+//add_waveform vis ["reset"];
+//add_waveform vis ["reqs[2:0]"];
+//add_waveform vis ["grants[2:0]"];
+//
+//let N = 40;
+//
+//let ant =
+//    "clk" is_clock N cycles
+//  and
+//    "reset" is 1 for 1 cycle otherwise 0 until N cycles
+//  and
+//    "reqs[2]" is 0 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 0 for 1 cycle followed_by
+//		 0 for 1 cycle followed_by
+//		 0 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle otherwise 0 until N cycles
+//  and
+//    "reqs[1]" is 0 for 1 cycle followed_by
+//		 0 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 0 for 1 cycle followed_by
+//		 0 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle otherwise 0 until N cycles
+//  and
+//    "reqs[0]" is 0 for 1 cycle followed_by
+//		 0 for 1 cycle followed_by
+//		 0 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 0 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle followed_by
+//		 1 for 1 cycle otherwise 0 until N cycles
+//;
+//
+//STE "-e" vis [] ant [] [];
+//
+
+let or_and =
+    bit_list_input	as.
+    bit_list_output	os.
+    CELL "or_and" (
+	length as = 1 => [ hd os <- hd as] |
+	val [a1,a2] = as in
+	val [o1,o2] = os in
+    [
+	o1 <- a1 '|' a2,
+	o2 <- a1 '&' a2
+]);
+
+slet gen_cluster sz l =
+    (cluster sz l) catch
+    let raw = cluster sz (l@[last l]) in
+    let l = [hd (last raw)] in
+    (butlast raw)@[l]
+;
+
+let stage odd =
+    bit_list_input  inps.
+    bit_list_output outs.
+    CELL "stage" (
+	odd => 
+	    let il = [hd inps]:(gen_cluster 2 (tl inps)) in
+	    let ol = [hd outs]:(gen_cluster 2 (tl outs)) in
+	    map2 or_and il ol
+	|
+	    let il = (gen_cluster 2 inps) in
+	    let ol = (gen_cluster 2 outs) in
+	    map2 or_and il ol
+);
+
+letrec sort_rec N =
+    bit_list_input  inps.
+    bit_list_output outs.
+    bit_list_internal (length inps) mid.
+    CELL (sprintf "sort_rec(%d)" N) (
+	N = 0 =>
+	    (map2 (\i.\o. o <- i) inps outs)
+	|
+	[
+	    stage (N % 2 = 1) inps mid,
+	    sort_rec (N-1) mid outs
+	]
+);
+
+let sorter =
+    bit_list_input  inps.
+    bit_list_output outs.
+    //
+    CELL "sorter" [
+	sort_rec (length inps) inps outs
+]
+;
+
+// An fair arbiter for two agents that is biased.
+// Ratio is a pair of integers (D,N) and should be interpreted as:
+// if both request the resource at the same time, Agent 0 will get it D times
+// out of N cycles.
+let biased_arbiter ratio =
+    val (D,N) = ratio in
+    D >= N => eprintf "Not a valid ratio (%d >= %d)" D N |
+    D <= 0 => eprintf "Not a valid ratio (D = %d)" D |
+    bit_input	clk reset.
+    bit_input	req0.
+    bit_input	req1.
+    bit_output	ack0.
+    bit_output	ack1.
+    //
+    bit_list_internal (N-1)	grants sorted_grants.
+    bit_internal    only0 only1 both too_many_zero_grants.
+    CELL "biased_arbiter" (
+	(map2 (\di.\do. re_ff_reset clk reset di do)
+	      (ack0:(butlast grants)) grants) @
+	[
+	sorter grants sorted_grants,
+	too_many_zero_grants <- AND_n (firstn D sorted_grants),
+	only0 <- req0 '&' '~' req1,
+	only1 <- req1 '&' '~' req0,
+	both  <- req0 '&' req1,
+	ack0 <- only0 '|' both '&' '~' too_many_zero_grants,
+	ack1 <- only1 '|' both '&' too_many_zero_grants
+]);
+
+//let vis = STE_debug (pexlif2fsm (biased_arbiter (3,4) 'clk 'reset 'req0 'req1 'ack0 'ack1));
+//
+//vis;
+//
+//add_waveform vis ["clk"];
+//add_waveform vis ["reset"];
+//add_waveform vis ["req0"];
+//add_waveform vis ["req1"];
+//add_waveform vis ["ack0"];
+//add_waveform vis ["ack1"];
+//
+//let ant = 
+//    let N = 40 in
+//    "clk" is_clock N
+//  and
+//    "reset" is "1" for 1 cycle otherwise "0" until N cycles
+//  and
+//    "req0" is	"1" in_cycle 3 followed_by
+//		"1" in_cycle 7 followed_by
+//		"1" in_cycle 10 followed_by
+//		"1" in_cycle 12 followed_by
+//		"1" in_cycle 13 followed_by
+//		"1" in_cycle 15 followed_by
+//		"1" in_cycles (17 upto 37) otherwise "0" until N cycles
+//  and
+//    "req1" is	"1" in_cycle 5 followed_by
+//		"1" in_cycle 7 followed_by
+//		"1" in_cycle 8 followed_by
+//		"1" in_cycle 12 followed_by
+//		"1" in_cycle 13 followed_by
+//		"1" in_cycle 14 followed_by
+//		"1" in_cycles (17 upto 37) otherwise "0" until N cycles
+//;
+//STE "-e" vis [] ant [] [];

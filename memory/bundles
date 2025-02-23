@@ -1,0 +1,55 @@
+
+BUNDLE "B_set_top_of_heap" 
+	[("req", "bit"), ("addr", "addr")] 
+	[("ack", "bit")]
+;
+
+BUNDLE "B_set_snap_ready"
+        [("req", "bit"), ("valid", "bit")]
+        [("ack", "bit")]
+;
+
+BUNDLE "B_mark_init" 
+	[("req", "bit")] 
+	[("ack", "bit")]
+;
+
+BUNDLE "B_cRAM_read" 
+	[("req", "bit"), ("addr", "caddr")] 
+	[("ack", "bit"), ("data", "ctrl_word")]
+;
+
+BUNDLE "B_cRAM_write" 
+	[("req", "bit"), ("addr", "caddr"), ("data", "ctrl_word")] 
+	[("ack", "bit")]
+;
+
+BUNDLE "B_RAM_read" 
+	[("req", "bit"), ("addr", "eaddr")] 
+	[("ack", "bit"), ("data", "node")]
+;
+
+BUNDLE "B_RAM_write" 
+	[("req", "bit"), ("addr", "eaddr"), ("data", "node")] 
+	[("ack", "bit")]
+;
+
+BUNDLE "B_ROM_read" 
+	[("req", "bit"), ("addr", "rom_addr")] 
+	[("ack", "bit"), ("data", "node")]
+;
+
+BUNDLE "B_memory" 
+	[("req", "bit"), ("op", "mem_op"), ("addr", "addr"), ("din", "node")] 
+	[("ack", "bit"), ("dout", "node")]
+;
+
+BUNDLE "B_mRAM_read"
+        [("req", "bit"), ("addr", "maddr")]
+        [("ack", "bit"), ("data", "mark_word")]
+;
+
+BUNDLE "B_mRAM_write"
+        [("req", "bit"), ("addr", "maddr"), ("data", "mark_word")]
+        [("ack", "bit")]
+;
